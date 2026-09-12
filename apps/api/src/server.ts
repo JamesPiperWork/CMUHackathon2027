@@ -1,0 +1,435 @@
+import Fastify, { type FastifyRequest } from "fastify";
+import cors from "@fastify/cors";
+import cookie from "@fastify/cookie";
+import formbody from "@fastify/formbody";
+import { Server } from "socket.io";
+import { z } from "zod";
+import {
+  decisionSchema,
+  generateSchema,
+  interests,
+  type Session,
+} from "@fp/shared";
+import { ApiError, GameService } from "./service.js";
+import { registerProviderRoutes } from "./providers.js";
+import { registerLiveAuth, resolveLiveIdentity } from "./auth-live.js";
+const escape = (value: unknown) =>
+  String(value).replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        c
+      ]!,
+  );
+const page = (title: string, body: string) =>
+  `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(title)} · Fantasy Phishing</title><style>body{margin:0;background:#0b1525;color:#faf7ef;font:18px/1.6 system-ui;padding:24px}main{max-width:560px;margin:5vh auto}a{color:#50e3c2}h1{line-height:1.1;font-size:36px}button{font:inherit;color:#08241e;background:#50e3c2;border:0;border-radius:16px;padding:14px 24px;margin:8px 8px 8px 0;cursor:pointer}.muted{color:#afbacb}.tag{font-size:13px;text-transform:uppercase;letter-spacing:2px;color:#50e3c2}.message{padding:24px;background:#152338;border-radius:20px;white-space:pre-wrap}select{font:inherit;padding:12px;width:100%}</style><main><p class="tag">Fantasy Phishing</p><h1>${escape(title)}</h1>${body}</main></html>`;
+export async function createServer(
+  service: GameService,
+  {
+    startJobs = true,
+  }: {
+    startJobs?: boolean;
+  } = {},
+) {
+  const app = Fastify({
+    logger: false,
+    bodyLimit: 16000,
+    trustProxy: service.config.mode === "live",
+  });
+  await app.register(cors, {
+    origin: service.config.appOrigin,
+    credentials: true,
+  });
+  await app.register(cookie);
+  await app.register(formbody);
+  app.addHook("onSend", async (_request, reply) => {
+    reply
+      .header("X-Content-Type-Options", "nosniff")
+      .header("Referrer-Policy", "no-referrer")
+      .header("Cache-Control", "no-store");
+  });
+  app.setErrorHandler((error, _request, reply) => {
+    if (error instanceof z.ZodError)
+      return reply
+        .code(400)
+        .send({
+          error: "Invalid request",
+          details: error.issues.map((i) => ({
+            path: i.path,
+            message: i.message,
+          })),
+        });
+    const status =
+      (
+        error as {
+          statusCode?: number;
+        }
+      ).statusCode ?? 500;
+    return reply
+      .code(status)
+      .send({
+        error:
+          status >= 500
+            ? "The server could not complete this request"
+            : error instanceof Error
+              ? error.message
+              : "Request rejected",
+      });
+  });
+  const authenticate = async (token: string): Promise<Session> => {
+    const session = await service.sessionForToken(token);
+    if (session) return session;
+    if (service.config.mode === "live") {
+      let identity;
+      try {
+        identity = await resolveLiveIdentity(token);
+      } catch {
+        throw new ApiError(401, "Live authentication failed");
+      }
+      const userId = await service.ensureLiveMember(identity);
+      return {
+        mode: "live",
+        userId,
+        role: "player",
+        tokenHash: "auth0",
+        expiresAt: Date.now() + 60000,
+        csrf: "",
+      };
+    }
+    throw new ApiError(401, "Sign in to your fictional player session");
+  };
+  const getSession = async (request: FastifyRequest, mutation = false) => {
+    const bearer = request.headers.authorization?.startsWith("Bearer ")
+      ? request.headers.authorization.slice(7)
+      : null;
+    const token = bearer ?? request.cookies.fp_session;
+    if (!token) throw new ApiError(401, "Sign in to continue");
+    const session = await authenticate(token);
+    if (mutation && !bearer) {
+      const body = request.body as
+        | {
+            csrf?: string;
+          }
+        | undefined;
+      if ((request.headers["x-csrf-token"] ?? body?.csrf) !== session.csrf)
+        throw new ApiError(403, "CSRF token required");
+      const origin = request.headers.origin;
+      if (
+        origin &&
+        ![service.config.appOrigin, service.config.apiOrigin].includes(origin)
+      )
+        throw new ApiError(403, "Origin rejected");
+    }
+    return session;
+  };
+  const operator = async (request: FastifyRequest) => {
+    if (service.config.mode !== "demo")
+      throw new ApiError(403, "Demo controls disabled in live mode");
+    const session = await getSession(request, request.method !== "GET");
+    if (session.role !== "operator")
+      throw new ApiError(403, "Demo operator session required");
+    return session;
+  };
+  app.get("/health", async () => ({
+    ok: true,
+    mode: service.config.mode,
+    storage: service.config.mongodbUri ? "mongodb" : "single-process-json",
+  }));
+  app.get("/api/config", async () => ({
+    mode: service.config.mode,
+    apiOrigin: service.config.apiOrigin,
+  }));
+  app.post("/api/demo/session", async (request, reply) => {
+    if (service.config.mode !== "demo")
+      throw new ApiError(403, "Demo sign-in disabled in live mode");
+    const origin = request.headers.origin;
+    if (
+      origin &&
+      ![service.config.appOrigin, service.config.apiOrigin].includes(origin)
+    )
+      throw new ApiError(403, "Origin rejected");
+    const { player } = z
+      .object({ player: z.enum(["alex", "jordan", "operator"]) })
+      .strict()
+      .parse(request.body);
+    const result = await service.createSession(
+      player === "operator" ? "alex" : player,
+      player === "operator" ? "operator" : "player",
+    );
+    reply.setCookie("fp_session", result.token, {
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/",
+      secure: false,
+      maxAge: 7 * 86400,
+    });
+    return result;
+  });
+  app.get("/api/state", async (request) =>
+    service.state(await getSession(request)),
+  );
+  app.post("/api/consent", async (request) => {
+    const session = await getSession(request, true);
+    const input = z
+      .object({
+        adult: z.literal(true),
+        channels: z
+          .object({ email: z.boolean(), sms: z.boolean(), voice: z.boolean() })
+          .strict(),
+        timezone: z.string().min(1).max(100),
+        startHour: z.number().int().min(0).max(23),
+        endHour: z.number().int().min(1).max(24),
+        familyFriendly: z.boolean(),
+        interests: z.array(z.enum(interests)).min(1).max(3).optional(),
+        displayName: z.string().trim().min(2).max(24).optional(),
+        excludedThemes: z.array(z.string().trim().max(80)).max(5).optional(),
+      })
+      .strict()
+      .parse(request.body);
+    await service.consent(session.userId, input);
+    return { ok: true };
+  });
+  app.post("/api/pause", async (request) => {
+    const session = await getSession(request, true);
+    const { paused } = z
+      .object({ paused: z.boolean() })
+      .strict()
+      .parse(request.body);
+    await service.setPaused(session.userId, paused);
+    return { ok: true };
+  });
+  app.post("/api/drafts/generate", async (request, reply) => {
+    const session = await getSession(request, true);
+    const result = await service.generate(
+      session.userId,
+      generateSchema.parse(request.body),
+    );
+    reply.code(202);
+    return result;
+  });
+  app.patch<{
+    Params: {
+      id: string;
+    };
+  }>("/api/drafts/:id", async (request) => {
+    const session = await getSession(request, true);
+    const input = z
+      .object({
+        bodyText: z.string().min(20).max(700).optional(),
+        smsText: z.string().min(15).max(300).optional(),
+        voiceScript: z.string().min(40).max(440).optional(),
+        subject: z.string().min(3).max(100).optional(),
+      })
+      .strict()
+      .parse(request.body);
+    await service.editDraft(session.userId, request.params.id, input);
+    return { ok: true };
+  });
+  app.post<{
+    Params: {
+      id: string;
+    };
+  }>("/api/drafts/:id/lock", async (request) => {
+    const session = await getSession(request, true);
+    await service.lock(session.userId, request.params.id);
+    return { ok: true };
+  });
+  app.post("/api/match/activate", async (request) => {
+    const session = await getSession(request, true);
+    await service.activate(session.userId);
+    return { ok: true };
+  });
+  app.post<{
+    Params: {
+      id: string;
+    };
+  }>("/api/scenarios/:id/decision", async (request) => {
+    const session = await getSession(request, true);
+    return service.decisionFor(
+      session.userId,
+      request.params.id,
+      decisionSchema.parse(request.body).choice,
+    );
+  });
+  app.post<{
+    Params: {
+      id: string;
+    };
+  }>("/api/scenarios/:id/ignore", async (request) => {
+    const session = await getSession(request, true);
+    await service.ignore(session.userId, request.params.id);
+    return { ok: true };
+  });
+  app.get("/api/operator", async (request) => {
+    await operator(request);
+    return service.operator();
+  });
+  app.post("/api/operator/reset", async (request) => {
+    await operator(request);
+    await service.reset();
+    return { ok: true };
+  });
+  app.post("/api/operator/release", async (request) => {
+    await operator(request);
+    const { recipientId, all } = z
+      .object({
+        recipientId: z.enum(["alex", "jordan"]).optional(),
+        all: z.boolean().optional(),
+      })
+      .strict()
+      .parse(request.body ?? {});
+    await service.release(recipientId, all);
+    return { ok: true };
+  });
+  app.post("/api/operator/advance", async (request) => {
+    await operator(request);
+    const { minutes } = z
+      .object({ minutes: z.number().min(0).max(1440) })
+      .strict()
+      .parse(request.body);
+    await service.advance(minutes);
+    return { ok: true };
+  });
+  app.post("/api/operator/finalize", async (request) => {
+    await operator(request);
+    await service.finalize();
+    return { ok: true };
+  });
+  app.get<{
+    Params: {
+      token: string;
+    };
+  }>("/r/:token", async (request, reply) => {
+    const { scenario, db } = await service.challengeToken(request.params.token);
+    let session: Session | null = null;
+    try {
+      session = await getSession(request);
+    } catch {
+      /* A preview is deliberately score neutral and may precede sign-in. */
+    }
+    if (session && session.userId !== scenario.recipientId)
+      throw new ApiError(403, "This challenge belongs to the other player");
+    const marker =
+      service.config.mode === "demo"
+        ? '<p class="tag">Simulated delivery · fictional league</p>'
+        : "";
+    let body =
+      marker +
+      `<p class="muted">${escape(scenario.content.senderDisplayName)}</p><div class="message">${escape(scenario.channel === "sms" ? scenario.content.smsText : scenario.channel === "voice" ? scenario.content.voiceScript : scenario.content.bodyText)}</div>`;
+    if (session) {
+      const decision = db.decisions.find(
+        (d) => d.scenarioId === scenario.id && d.recipientId === session.userId,
+      );
+      if (decision)
+        body += `<h2>${decision.correct ? "Bait spotted. Nicely played." : "You took a detour."}</h2><p>${escape(scenario.content.explanation)}</p><p>${decision.defenderPoints > 0 ? "+" : ""}${decision.defenderPoints} points</p>`;
+      else
+        body += `<p>Inspect freely. Only your submitted answer locks a decision.</p><form method="post" action="/r/${escape(request.params.token)}"><input type="hidden" name="csrf" value="${escape(session.csrf)}"><button name="choice" value="trust">Trust it</button><button name="choice" value="flag">Flag as phishing</button></form>`;
+    } else if (service.config.mode === "demo")
+      body += `<p>Sign in as the intended fictional recipient to respond. Opening this preview earns no points.</p><form method="post" action="/r/${escape(request.params.token)}/login"><label>Fictional player<select name="player"><option value="alex">Alex</option><option value="jordan">Jordan</option></select></label><button>Demo sign in</button></form>`;
+    else
+      body += `<p>Opening this preview earns no points.</p><a href="/auth/login?challenge=${encodeURIComponent(request.params.token)}">Sign in to respond</a>`;
+    body += `<p><a href="${escape(service.config.appOrigin)}">Back to the league</a></p>`;
+    return reply.type("text/html").send(page(scenario.content.subject, body));
+  });
+  app.post<{
+    Params: {
+      token: string;
+    };
+  }>("/r/:token/login", async (request, reply) => {
+    if (service.config.mode !== "demo")
+      throw new ApiError(403, "Demo sign-in disabled");
+    const origin = request.headers.origin;
+    if (origin && origin !== service.config.apiOrigin)
+      throw new ApiError(403, "Origin rejected");
+    const { scenario } = await service.challengeToken(request.params.token);
+    const { player } = z
+      .object({ player: z.enum(["alex", "jordan"]) })
+      .strict()
+      .parse(request.body);
+    if (player !== scenario.recipientId)
+      throw new ApiError(403, "Sign in as the intended recipient");
+    const { token } = await service.createSession(player);
+    reply.setCookie("fp_session", token, {
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/",
+      secure: false,
+      maxAge: 7 * 86400,
+    });
+    return reply.redirect(`/r/${encodeURIComponent(request.params.token)}`);
+  });
+  app.post<{
+    Params: {
+      token: string;
+    };
+  }>("/r/:token", async (request, reply) => {
+    const session = await getSession(request, true);
+    const { scenario } = await service.challengeToken(request.params.token);
+    const input = z
+      .object({ choice: z.enum(["trust", "flag"]), csrf: z.string() })
+      .strict()
+      .parse(request.body);
+    await service.decisionFor(session.userId, scenario.id, input.choice);
+    return reply.redirect(`/r/${encodeURIComponent(request.params.token)}`);
+  });
+  app.get("/", async (_request, reply) =>
+    reply
+      .type("text/html")
+      .send(
+        page(
+          "A little rivalry. A sharper instinct.",
+          `<p>Private, opt-in phishing practice for adult friends.</p><p>${service.config.mode === "demo" ? "This local demo uses fictional people and simulated delivery." : "Real channels require verified membership and consent."}</p><a href="${escape(service.config.appOrigin)}">Open the league</a>`,
+        ),
+      ),
+  );
+  await registerProviderRoutes(app, service);
+  await registerLiveAuth(app, service, service.config);
+  const io = new Server(app.server, {
+    cors: { origin: service.config.appOrigin, credentials: true },
+  });
+  io.use(async (socket, next) => {
+    try {
+      if (typeof socket.handshake.auth.token !== "string")
+        throw new Error("Session required");
+      socket.data.session = await authenticate(socket.handshake.auth.token);
+      next();
+    } catch {
+      next(new Error("Unauthorized"));
+    }
+  });
+  io.on("connection", (socket) => {
+    const session = socket.data.session as Session;
+    void socket.join(`user:${session.userId}`);
+    socket.on("subscribe", (_payload, ack) => {
+      if (typeof ack === "function")
+        ack({ error: "Subscriptions are assigned by the server" });
+    });
+  });
+  service.onChange = () => {
+    for (const id of ["alex", "jordan"])
+      io.to(`user:${id}`).emit("state:changed");
+  };
+  const timer = startJobs
+    ? setInterval(() => {
+        void service
+          .tick()
+          .catch((error) =>
+            app.log.error({
+              message:
+                error instanceof Error ? error.message : "Job runner failed",
+            }),
+          );
+      }, service.config.jobIntervalMs)
+    : null;
+  timer?.unref();
+  app.addHook("preClose", async () => {
+    io.disconnectSockets(true);
+  });
+  app.addHook("onClose", async () => {
+    if (timer) clearInterval(timer);
+    service.onChange = () => undefined;
+    await new Promise<void>((resolve) => io.close(() => resolve()));
+    await service.repo.close();
+  });
+  return { app, io };
+}

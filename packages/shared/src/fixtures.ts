@@ -1,0 +1,270 @@
+import {
+  interests,
+  type ApprovedContent,
+  type Channel,
+  type Database,
+  type Profile,
+} from "./domain";
+export const templateOptions = [
+  {
+    id: "ticket-drop",
+    name: "The ticket upgrade",
+    description: "An unexpected upgrade to your fictional night out.",
+  },
+  {
+    id: "parcel-update",
+    name: "The mystery parcel",
+    description: "A delivery update with one detail out of place.",
+  },
+  {
+    id: "game-night",
+    name: "The guest-list shuffle",
+    description: "A familiar hobby. An unfamiliar request.",
+  },
+] as const;
+export function fixtureContent(
+  channel: Channel,
+  templateId: string,
+  isPhishing: boolean,
+): ApprovedContent {
+  const ticket = templateId === "ticket-drop";
+  const parcel = templateId === "parcel-update";
+  if (isPhishing) {
+    const brand = ticket
+      ? "Juniper Sessions"
+      : parcel
+        ? "Mooncrate"
+        : "Trail Club";
+    const subject = ticket
+      ? "Your backstage upgrade is waiting"
+      : parcel
+        ? "MC-204: one last delivery step"
+        : "Saturday walk: your place needs confirming";
+    const claim = ticket
+      ? "Your JS-118 booking has been selected for a backstage upgrade. Confirm within ten minutes or your original tickets will be released."
+      : parcel
+        ? "Your Mooncrate parcel MC-204 is on hold. Approve a surprise delivery change in the next ten minutes to keep your Saturday slot."
+        : "Your Saturday Trail Club place has moved to a special guest list. Confirm in ten minutes or we will pass your place to someone else.";
+    const explanation = ticket
+      ? "Your activity card says JS-118 is already confirmed, and you never requested an upgrade. The threat to release existing tickets creates pressure to act."
+      : parcel
+        ? "Your activity card says MC-204 is already scheduled for Saturday with no extra fee. This unexpected hold and ten-minute deadline are a reason to verify through a known route."
+        : "You requested a walk reminder, not a guest-list change. A new deadline that threatens your place conflicts with the activity card.";
+    return {
+      subject,
+      senderDisplayName: brand,
+      bodyText: `Hi there! ${claim} Use the response below to keep your place.\n\n${brand} guest team`,
+      smsText: `${brand}: ${claim} Check your response below.`,
+      voiceScript: `Hello, this is the ${brand} guest team. ${claim} Please make your choice after this message.`,
+      cueAnnotations: [
+        "An unexpected change to a confirmed plan.",
+        "A short deadline pushes you to act before checking.",
+      ],
+      explanation,
+    };
+  }
+  const content: ApprovedContent =
+    channel === "email"
+      ? {
+          subject: "Your Mooncrate order MC-204 is on its way",
+          senderDisplayName: "Mooncrate",
+          bodyText:
+            "Your board-game expansion, order MC-204, is scheduled for Saturday. Everything is set and there is no extra fee. This is the delivery update you expected.\n\nMooncrate dispatch team",
+          smsText:
+            "Mooncrate: MC-204 is scheduled for Saturday. No extra fee. Your board-game expansion is on its way.",
+          voiceScript:
+            "Hello from Mooncrate. Your board-game expansion, order MC-204, is scheduled for Saturday. Everything is set. There is no extra fee, and no change to your order. This is your expected delivery reminder.",
+          cueAnnotations: [
+            "The order reference and timing match your activity card.",
+            "No unexpected payment or change is requested.",
+          ],
+          explanation:
+            "Within the game, this is the order update you expected: Mooncrate, MC-204, Saturday delivery, and no extra fee all match your activity card.",
+        }
+      : channel === "sms"
+        ? {
+            subject: "Friday plans: confirmed",
+            senderDisplayName: "Juniper Sessions",
+            bodyText:
+              "Juniper Sessions: your two Friday tickets are confirmed. Booking JS-118. No changes or upgrades have been made. See you there!",
+            smsText:
+              "Juniper Sessions: your two Friday tickets are confirmed. Booking JS-118. No changes or upgrades. See you there!",
+            voiceScript:
+              "Hello from Juniper Sessions. This is a reminder that your two Friday tickets are confirmed under booking JS-118. No changes or upgrades have been made. Your existing tickets remain valid. We look forward to seeing you on Friday.",
+            cueAnnotations: [
+              "The booking code and two tickets match your activity card.",
+            ],
+            explanation:
+              "Within the game, this confirms your existing JS-118 booking and two Friday tickets. It matches the activity card and makes no unexpected demand.",
+          }
+        : {
+            subject: "Your requested Saturday walk reminder",
+            senderDisplayName: "Trail Club",
+            bodyText:
+              "Here is the Saturday walk reminder you requested. Meet the Trail Club at the north gate at 10:30. Your place is confirmed; no other action is needed.",
+            smsText:
+              "Trail Club reminder: Saturday walk, north gate, 10:30. You requested this reminder. Your place is confirmed.",
+            voiceScript:
+              "Hello from Trail Club. Here is the Saturday walk reminder you requested. We will meet at the north gate at ten thirty. Your place is already confirmed, and no changes are needed. Bring comfortable shoes. We look forward to seeing you there.",
+            cueAnnotations: [
+              "You requested this reminder; location and time match your activity card.",
+            ],
+            explanation:
+              "Within the game, this is your requested Trail Club reminder. The north gate, Saturday, and 10:30 match your activity card. No surprise change is introduced.",
+          };
+  return content;
+}
+/** Intentionally conservative demo review. A fixed cue and claim must survive edits. */
+export function contentReview(content: ApprovedContent): {
+  valid: boolean;
+  reason?: string;
+} {
+  const visible = [
+    content.subject,
+    content.senderDisplayName,
+    content.bodyText,
+    content.smsText,
+    content.voiceScript,
+  ].join(" ");
+  if (
+    /https?:|www\.|[\w.+-]+@[\w.-]+\.[a-z]{2,}|\b(?:password|passcode|one.time.code|otp|credit.card|bank.account|social.security|ssn|download|attachment|bitcoin|wire.transfer|nude|sex|suicide|hospital|police|arrest|employer|fired|eviction|ransom)\b/i.test(
+      visible,
+    )
+  )
+    return {
+      valid: false,
+      reason:
+        "Use the approved low-stakes story. Links, contact addresses, secrets, and sensitive themes are not allowed.",
+    };
+  if (/<[^>]+>|```|javascript:|data:/i.test(visible))
+    return {
+      valid: false,
+      reason: "Plain text only. The server supplies every action destination.",
+    };
+  if (/\b(?:kill|hate|idiot|stupid|loser|dumb)\b/i.test(visible))
+    return { valid: false, reason: "Keep the rivalry friendly." };
+  if (
+    /\b(?:ignore (?:all|previous)|system prompt|you are now)\b/i.test(visible)
+  )
+    return { valid: false, reason: "Choose a story edit, not instructions." };
+  return { valid: true };
+}
+export function scenarioConsistent(
+  content: ApprovedContent,
+  templateId: string,
+): boolean {
+  const required =
+    templateId === "ticket-drop"
+      ? ["JS-118", "upgrade"]
+      : templateId === "parcel-update"
+        ? ["MC-204", "hold"]
+        : ["Saturday", "guest list"];
+  return [content.bodyText, content.smsText, content.voiceScript].every(
+    (text) =>
+      required.every((term) =>
+        text.toLowerCase().includes(term.toLowerCase()),
+      ) && /ten minutes|ten-minute|10 minutes/i.test(text),
+  );
+}
+export function createSeed(now = Date.now()): Database {
+  const names = [
+    "Alex",
+    "Jordan",
+    "Sam",
+    "Riley",
+    "Casey",
+    "Morgan",
+    "Jamie",
+    "Taylor",
+  ];
+  const points = [12, 10, 18, 15, 9, 7, 5, 3];
+  const colors = [
+    "#44E2C3",
+    "#FF927F",
+    "#B7AAFF",
+    "#E7CA87",
+    "#9EBADF",
+    "#C1D596",
+    "#E8ADD2",
+    "#77BECE",
+  ];
+  const profiles: Profile[] = names.map((name, i) => ({
+    id: name.toLowerCase(),
+    name,
+    initials: name.slice(0, 1),
+    color: colors[i],
+    interests: [...interests],
+    historical: i > 1,
+    leaguePoints: points[i],
+    wins: Math.floor(points[i] / 3),
+    losses: i + 1,
+    draws: points[i] % 3,
+  }));
+  const ranked = [...profiles].sort((a, b) => b.leaguePoints - a.leaguePoints);
+  return {
+    version: 1,
+    revision: 0,
+    clockOffset: 0,
+    profiles,
+    members: profiles.map((p) => ({
+      userId: p.id,
+      leagueId: "usual-suspects",
+      accepted: p.historical,
+      consent: {
+        version: "2026-09-v1",
+        acceptedAt: p.historical ? now : null,
+        adult: p.historical,
+        channels: {
+          email: p.historical,
+          sms: p.historical,
+          voice: p.historical,
+        },
+        paused: false,
+        timezone: "America/New_York",
+        startHour: 10,
+        endHour: 20,
+        familyFriendly: true,
+        excludedThemes: ["Medical emergencies", "Money trouble", "Humiliation"],
+        contacts: {
+          email: {
+            destination: `${p.id}@demo.invalid`,
+            verified: false,
+            method: "demo",
+          },
+          sms: {
+            destination: "Fictional demo phone",
+            verified: false,
+            method: "demo",
+          },
+          voice: {
+            destination: "Fictional demo phone",
+            verified: false,
+            method: "demo",
+          },
+        },
+      },
+    })),
+    match: {
+      id: "match-week-04",
+      leagueId: "usual-suspects",
+      players: ["alex", "jordan"],
+      state: "drafting",
+      seed: 20270912,
+      deadline: now + 24 * 60 * 60 * 1000,
+      startedAt: null,
+      completedAt: null,
+      scores: { alex: 0, jordan: 0 },
+      result: null,
+      winnerId: null,
+      standingsApplied: false,
+      standingsBefore: Object.fromEntries(ranked.map((p, i) => [p.id, i + 1])),
+    },
+    scenarios: [],
+    decisions: [],
+    scoreEvents: [],
+    jobs: [],
+    attempts: [],
+    sessions: [],
+    callbackIds: [],
+  };
+}

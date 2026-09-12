@@ -1,0 +1,33 @@
+{
+  "name": "fantasy-phishing",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env node_modules/concurrently/dist/bin/concurrently.js -k -n api,mobile \"npm run dev -w @fp/api\" \"npm run dev -w @fp/mobile\"",
+    "seed": "npm run seed -w @fp/api",
+    "reset:demo": "npm run reset:demo -w @fp/api",
+    "typecheck": "tsc -p tsconfig.scripts.json && npm run typecheck --workspaces --if-present",
+    "lint": "eslint apps packages scripts",
+    "test": "tsx --test apps/api/test/*.test.ts packages/shared/src/*.test.ts",
+    "build": "npm run build -w @fp/api && npm run build -w @fp/mobile",
+    "demo:finish": "tsx scripts/finish-demo.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "@types/node": "^22.19.0",
+    "concurrently": "^9.2.1",
+    "esbuild": "^0.25.12",
+    "eslint": "^9.39.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.0"
+  },
+  "type": "module"
+}
