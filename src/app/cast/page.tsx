@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { api, getActing, type ActingPlayer } from "@/lib/client";
 import { Page, Eyebrow, Heading, Card, Button, ButtonLink, Field, Notice, Rule } from "@/components/ui";
 import { ArrowDR } from "@/components/Logo";
+import { Hook } from "@/components/icons";
 
 function toList(s: string): string[] { return s.split(",").map((x) => x.trim()).filter(Boolean); }
 
@@ -97,7 +98,7 @@ export default function Cast() {
           </div>
           <Field label="Pretext / angle" value={pretext} onChange={setPretext} placeholder="e.g. season-ticket renewal" hint="optional" />
           <Button onClick={generate} disabled={busy} className="w-full">
-            {busy ? "Generating…" : "Generate lure with Gemini"} <ArrowDR className="h-4 w-4" />
+            <Hook className="h-4 w-4" /> {busy ? "Generating…" : "Generate lure with Gemini"}
           </Button>
         </Card>
       ) : (
@@ -117,7 +118,7 @@ export default function Cast() {
             <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={12} className="input mt-2 font-mono text-sm leading-relaxed" />
           </label>
           <div className="flex flex-wrap gap-3">
-            <Button onClick={send} disabled={busy} className="flex-1">{busy ? "Sending…" : `Send to ${opponent?.name}`} <ArrowDR className="h-4 w-4" /></Button>
+            <Button onClick={send} disabled={busy} className="flex-1"><Hook className="h-4 w-4" /> {busy ? "Sending…" : `Cast to ${opponent?.name}`}</Button>
             <Button onClick={() => setPhase("form")} variant="outline">Edit recon</Button>
           </div>
         </Card>

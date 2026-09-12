@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, getActing, type ActingPlayer } from "@/lib/client";
 import { Page, Eyebrow, Heading, Card, Button, Notice, Rule } from "@/components/ui";
+import { Float, Pennant, Waves } from "@/components/icons";
 
 // The defender's in-app Inbox. Training emails land here (nothing is sent externally).
 // Open one, then either click its link (→ teaching page, sender scores) or REPORT it
@@ -58,7 +59,10 @@ export default function Inbox() {
               className={`w-full rounded-2xl border p-4 text-left transition ${openId === m.id ? "border-cyan bg-cyan/10" : "border-sky/10 bg-indigo/60 hover:border-sky/30"}`}
             >
               <div className="flex items-center justify-between gap-3">
-                <div className="truncate font-body text-sm font-medium">{m.subject}</div>
+                <div className="flex min-w-0 items-center gap-2">
+                  {m.status === "sent" && <Float className="h-3.5 w-3.5 shrink-0 text-cyan" />}
+                  <div className="truncate font-body text-sm font-medium">{m.subject}</div>
+                </div>
                 <Status s={m.status} />
               </div>
               <div className="mt-1 font-body text-xs text-sky/40">Unknown sender · {new Date(m.sentAt).toLocaleTimeString()}</div>
@@ -66,6 +70,7 @@ export default function Inbox() {
           ))}
           {messages.length === 0 && (
             <div className="rounded-2xl border border-dashed border-sky/15 p-5 text-sm text-sky/50">
+              <Waves className="mb-3 h-6 w-6 text-sky/30" />
               Inbox empty. Switch to your opponent on the home page and send a cast to see it here.
             </div>
           )}
@@ -82,7 +87,7 @@ export default function Inbox() {
               <div className="whitespace-pre-wrap break-words font-body text-[15px] leading-relaxed text-prussian/85">{linkify(open.body)}</div>
               <div className="mt-8 flex flex-wrap items-center gap-3 border-t border-prussian/15 pt-5">
                 {open.reportable ? (
-                  <Button onClick={() => report(open.id)} variant="warm">Report as phish</Button>
+                  <Button onClick={() => report(open.id)} variant="warm"><Pennant className="h-4 w-4" /> Report as phish</Button>
                 ) : (
                   <span className="font-body text-sm text-prussian/60">{open.status === "reported" ? "You reported this one." : "You clicked this. See the teaching page."}</span>
                 )}

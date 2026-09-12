@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, getActing, type ActingPlayer } from "@/lib/client";
 import { Page, Eyebrow, Heading, Card, ButtonLink, Stat, Rule } from "@/components/ui";
-import { ArrowDR } from "@/components/Logo";
+import { Hook, Harpoon } from "@/components/icons";
 
 export default function Play() {
   const router = useRouter();
@@ -36,7 +36,7 @@ export default function Play() {
             <div className="font-body text-[11px] font-medium uppercase tracking-eyebrow text-cyan">You · offense</div>
             <div className="mt-2 font-heading text-5xl leading-none text-sky sm:text-6xl">{acting?.name}</div>
           </div>
-          <div className="font-heading text-3xl italic text-sky/30">vs</div>
+          <div className="flex items-center justify-center"><Hook className="h-10 w-10 text-sky/40" /></div>
           <div className="sm:text-right">
             <div className="font-body text-[11px] font-medium uppercase tracking-eyebrow text-fawn">Target · defense</div>
             <div className="mt-2 font-heading text-5xl leading-none text-sky sm:text-6xl">{opponent?.name ?? "—"}</div>
@@ -62,8 +62,8 @@ export default function Play() {
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
-            <ButtonLink href="/cast" variant="primary" disabled={noCasts}>New Cast <ArrowDR className="h-4 w-4" /></ButtonLink>
-            <ButtonLink href="/spear" variant="accent" disabled={!shots.spearAvailable}>Use Spear</ButtonLink>
+            <ButtonLink href="/cast" variant="primary" disabled={noCasts}><Hook className="h-4 w-4" /> New Cast</ButtonLink>
+            <ButtonLink href="/spear" variant="accent" disabled={!shots.spearAvailable}><Harpoon className="h-4 w-4" /> Use Spear</ButtonLink>
           </div>
         </Card>
       </div>

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { api, setActing } from "@/lib/client";
 import { Page, Eyebrow, Heading, Lede, Button, Card, Rule } from "@/components/ui";
 import { ArrowDR } from "@/components/Logo";
+import { Anchor, Buoy, Lifebuoy, Bathymetry, CompassRose } from "@/components/icons";
 
 interface Player { id: string; name: string; email: string; leagueId: string; }
 
@@ -40,7 +41,8 @@ export default function Home() {
     <Page width="max-w-6xl">
       {/* Hero */}
       <section className="relative overflow-hidden rounded-brand border border-sky/10 bg-indigo/60 px-6 py-14 sm:px-12 sm:py-20">
-        <div className="pattern-chevron absolute inset-y-0 right-0 w-1/2 opacity-60 [mask-image:linear-gradient(to_left,black,transparent)]" />
+        <Bathymetry className="absolute inset-0 h-full w-full text-sky/[0.07] [mask-image:linear-gradient(to_left,black_30%,transparent_75%)]" />
+        <CompassRose className="absolute -bottom-16 -right-10 h-72 w-72 text-sky/[0.09] sm:h-96 sm:w-96" />
         <div className="relative">
           <Eyebrow>A Mavacy training game</Eyebrow>
           <Heading size="xl" className="mt-6">
@@ -98,17 +100,20 @@ export default function Home() {
       {/* Guardrails */}
       <section className="mt-16 grid gap-4 sm:grid-cols-3">
         <Card tone="sky">
-          <div className="font-body text-[11px] font-medium uppercase tracking-eyebrow text-prussian/60">Closed loop</div>
+          <Anchor className="h-6 w-6 text-prussian" />
+          <div className="mt-4 font-body text-[11px] font-medium uppercase tracking-eyebrow text-prussian/60">Closed loop</div>
           <p className="mt-2 font-heading text-2xl leading-tight">Only your scheduled opponent. Ever.</p>
           <p className="mt-2 text-sm text-prussian/70">The server resolves your target from the schedule. There is no address field anywhere.</p>
         </Card>
         <Card tone="mint">
-          <div className="font-body text-[11px] font-medium uppercase tracking-eyebrow text-prussian/60">Nothing leaves</div>
+          <Buoy className="h-6 w-6 text-prussian" />
+          <div className="mt-4 font-body text-[11px] font-medium uppercase tracking-eyebrow text-prussian/60">Nothing leaves</div>
           <p className="mt-2 font-heading text-2xl leading-tight">Delivered to an in-app inbox.</p>
           <p className="mt-2 text-sm text-prussian/70">No mail service exists in this app. Training emails are read here, not in a real mailbox.</p>
         </Card>
         <Card tone="icterine">
-          <div className="font-body text-[11px] font-medium uppercase tracking-eyebrow text-prussian/60">Every click teaches</div>
+          <Lifebuoy className="h-6 w-6 text-prussian" />
+          <div className="mt-4 font-body text-[11px] font-medium uppercase tracking-eyebrow text-prussian/60">Every click teaches</div>
           <p className="mt-2 font-heading text-2xl leading-tight">Landing pages collect nothing.</p>
           <p className="mt-2 text-sm text-prussian/70">A click reveals the simulation and lists the red flags. No forms, no fields, no credentials.</p>
         </Card>

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { api, getActing, type ActingPlayer } from "@/lib/client";
 import { Page, Eyebrow, Heading, Card, Button, ButtonLink, Notice, Rule } from "@/components/ui";
 import { ArrowDR } from "@/components/Logo";
+import { Harpoon } from "@/components/icons";
 
 export default function Spear() {
   const router = useRouter();
@@ -88,7 +89,7 @@ export default function Spear() {
           <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={12} className="input mt-2 font-mono text-sm leading-relaxed" />
         </label>
         <Button onClick={send} disabled={busy || !available || !subject} variant="accent" className="w-full">
-          {busy ? "Throwing…" : `Throw spear at ${opponent?.name ?? "opponent"}`} <ArrowDR className="h-4 w-4" />
+          <Harpoon className="h-4 w-4" /> {busy ? "Throwing…" : `Throw spear at ${opponent?.name ?? "opponent"}`}
         </Button>
       </Card>
     </Page>

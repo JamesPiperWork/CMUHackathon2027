@@ -2,6 +2,7 @@ import Link from "next/link";
 import { db, getPlayer, RULES } from "@/lib/league";
 import { nowIso } from "@/lib/store";
 import { Logo, ArrowDR } from "@/components/Logo";
+import { Hook } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,7 @@ export default function TeachingPage({ params }: { params: { token: string } }) 
       <div className="overflow-hidden rounded-brand border border-sky bg-sky text-prussian">
         <div className="pattern-chevron-dark border-b border-prussian/10 px-6 py-8 sm:px-10 sm:py-10">
           <span className="inline-flex items-center gap-2 rounded-full border border-prussian/40 px-3 py-1 font-body text-[11px] font-medium uppercase tracking-eyebrow text-prussian">
-            Gotcha · training simulation
+            <Hook className="h-3.5 w-3.5" /> Gotcha · training simulation
           </span>
           <h1 className="mt-6 font-heading text-4xl leading-[0.95] sm:text-6xl">
             This was a Fantasy Phishing <span className="italic">training simulation.</span>
