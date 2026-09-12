@@ -1,17 +1,29 @@
-// Mavacy mark (double-peak "M") + wordmark. White or cyan on dark per the guidelines;
-// never rotated, stretched, or washed out.
+// Fantasy Phishing mark: a fish hook whose upper form reads as an "F" — the vertical
+// shank is the F's stem, two arms make the F, and the shank curves into a barbed hook.
+// Monoline, same stroke language as the rest of the iconography. Cyan on dark, Prussian
+// on light. Never rotated or stretched.
 export function Mark({ className = "h-7 w-auto", color = "currentColor" }: { className?: string; color?: string }) {
   return (
-    <svg viewBox="0 0 64 44" className={className} aria-hidden fill="none" stroke={color} strokeWidth="7" strokeLinejoin="miter" strokeLinecap="butt">
-      <path d="M4 42 L21 6 L36 36" />
-      <path d="M28 36 L43 6 L60 42" />
+    <svg viewBox="0 0 30 34" className={className} fill="none" stroke={color} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      {/* F stem = hook shank */}
+      <path d="M10 4.5 V22" />
+      {/* F top arm */}
+      <path d="M10 5 H21.5" />
+      {/* F middle arm */}
+      <path d="M10 14 H17.5" />
+      {/* hook bend + upward point */}
+      <path d="M10 22 C10 29.5 19.5 29.5 19.5 21.5 V19" />
+      {/* barb */}
+      <path d="M19.5 19 L16.8 21.6" />
     </svg>
   );
 }
 
 export function Wordmark({ className = "" }: { className?: string }) {
   return (
-    <span className={`font-body text-sm font-medium uppercase tracking-[0.32em] ${className}`}>Mavacy</span>
+    <span className={`font-heading text-lg leading-none ${className}`}>
+      Fantasy <span className="italic">Phishing</span>
+    </span>
   );
 }
 
@@ -19,14 +31,14 @@ const LOGO_TONES = { sky: ["#F2FDFF", "text-sky"], cyan: ["#3FE4E4", "text-cyan"
 export function Logo({ tone = "sky" }: { tone?: keyof typeof LOGO_TONES }) {
   const [color, cls] = LOGO_TONES[tone];
   return (
-    <span className="inline-flex items-center gap-3">
+    <span className="inline-flex items-center gap-2.5">
       <Mark color={color} />
       <Wordmark className={cls} />
     </span>
   );
 }
 
-// The chunky down-right arrow from the brand cover — used as a directional motif.
+// The chunky down-right arrow motif.
 export function ArrowDR({ className = "h-6 w-6" }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" className={className} aria-hidden fill="currentColor">

@@ -1,4 +1,4 @@
-// Monoline maritime iconography. Same stroke language as the Mavacy mark: geometric,
+// Monoline maritime iconography. Same stroke language as the Fantasy Phishing mark:
 // 1.5px strokes, round caps, currentColor. Used sparingly and only where the metaphor
 // carries meaning (cast = hook, spear = harpoon, report = pennant, guardrails = mooring).
 import type { SVGProps } from "react";

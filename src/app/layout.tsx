@@ -5,8 +5,8 @@ import { Logo } from "@/components/Logo";
 import { heading, body } from "./fonts";
 
 export const metadata: Metadata = {
-  title: "Fantasy Phishing · Mavacy",
-  description: "A closed-league, consent-based phishing-awareness training game by Mavacy.",
+  title: "Fantasy Phishing",
+  description: "A closed-league, consent-based phishing-awareness training game.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

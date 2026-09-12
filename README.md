@@ -53,12 +53,12 @@ npm run seed         # optional — the app auto-seeds; this resets to a fresh D
 npm run test:e2e     # boots the app on :3999 and runs the full acceptance path below
 ```
 
-**Live:** https://fantasy-phishing.vercel.app (Vercel project `mavacy-team/fantasy-phishing`).
+**Live:** https://fantasy-phishing.vercel.app
 
-Deploy to Vercel from the CLI (the project is linked under the `mavacy-team` scope):
+Deploy to Vercel from the CLI:
 
 ```bash
-vercel link --scope mavacy-team --project fantasy-phishing
+vercel link --scope <your-team> --project fantasy-phishing
 vercel env add GEMINI_API_KEY production --sensitive   # paste the key
 vercel env add GEMINI_MODEL   production               # gemini-3.6-flash
 vercel deploy --prod
@@ -97,10 +97,7 @@ instance and auto-seeds on first request; hit **Re-seed** on the home page to re
 `npm run test:e2e` runs exactly this path (plus the negative cases) against a live server
 and prints ✓ per check.
 
-## Brand
-
-The UI follows the **Mavacy Brand Guidelines (Sept 2025)** checked into this repo as
-`Mavacy_BrandGuidelines (2).pdf`:
+## Design system
 
 - **Palette** (the only colors used): Prussian `#0A2536`, Indigo `#153954`, Payne `#33566D`,
   Sky `#F2FDFF`, Mint `#D5F9F4`, Cyan `#3FE4E4`, Fawn `#FFBA7A`, Icterine `#FFFA70`. Defined once

@@ -44,7 +44,7 @@ export default function Home() {
         <Bathymetry className="absolute inset-0 h-full w-full text-sky/[0.07] [mask-image:linear-gradient(to_left,black_30%,transparent_75%)]" />
         <CompassRose className="absolute -bottom-16 -right-10 h-72 w-72 text-sky/[0.09] sm:h-96 sm:w-96" />
         <div className="relative">
-          <Eyebrow>A Mavacy training game</Eyebrow>
+          <Eyebrow>Consent-based training game</Eyebrow>
           <Heading size="xl" className="mt-6">
             Fantasy<br /><span className="italic text-cyan">Phishing</span>
           </Heading>
