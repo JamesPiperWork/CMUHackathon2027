@@ -53,7 +53,19 @@ npm run seed         # optional — the app auto-seeds; this resets to a fresh D
 npm run test:e2e     # boots the app on :3999 and runs the full acceptance path below
 ```
 
-Deploy to Vercel: import the repo, set `GEMINI_API_KEY`, deploy. Nothing else to provision.
+**Live:** https://fantasy-phishing.vercel.app (Vercel project `mavacy-team/fantasy-phishing`).
+
+Deploy to Vercel from the CLI (the project is linked under the `mavacy-team` scope):
+
+```bash
+vercel link --scope mavacy-team --project fantasy-phishing
+vercel env add GEMINI_API_KEY production --sensitive   # paste the key
+vercel env add GEMINI_MODEL   production               # gemini-3.6-flash
+vercel deploy --prod
+```
+
+Nothing else to provision: no database, no mail service. State lives in the function
+instance and auto-seeds on first request; hit **Re-seed** on the home page to reset.
 
 ## The demo click-path (acceptance)
 
