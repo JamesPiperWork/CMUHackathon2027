@@ -1,0 +1,41 @@
+# Render Blueprint for the Fantasy Phishing API (the always-on backend).
+# Vercel hosts the web frontend; this hosts the Fastify server it talks to.
+# Deploy: push this repo to GitHub, then in Render → "New +" → "Blueprint" → pick the repo.
+services:
+  - type: web
+    name: fantasy-phishing-api
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm install && npm run build -w @fp/api
+    startCommand: node apps/api/dist/index.js
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22.13.0"
+      - key: HOST
+        value: "0.0.0.0"
+      - key: APP_MODE
+        value: demo
+      - key: EMAIL_DELIVERY_MODE
+        value: simulated
+      - key: MATCH_DURATION_MINUTES
+        value: "10080"
+      # PORT is provided by Render automatically; the server reads it.
+      # Set these after the first deploy, when you know the URLs:
+      - key: API_ORIGIN          # this service's public URL, e.g. https://fantasy-phishing-api.onrender.com
+        sync: false
+      - key: APP_ORIGIN          # the Vercel URL, e.g. https://fantasy-phishing.vercel.app  (CORS)
+        sync: false
+      # Persistence: the free plan has no disk, so JSON storage resets on redeploy/sleep.
+      # For durable state set MONGODB_URI to a MongoDB Atlas replica set (transactions required).
+      - key: MONGODB_URI
+        sync: false
+      - key: DEMO_DATA_FILE
+        value: ./data/demo.json
+      # Optional AI content generation; unset falls back to approved fixtures.
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.6-flash

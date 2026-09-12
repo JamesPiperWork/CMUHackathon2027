@@ -10,3 +10,8 @@ data/
 apps/mobile/ios/
 apps/mobile/android/
 coverage/
+.vercel/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+.vercel/output/

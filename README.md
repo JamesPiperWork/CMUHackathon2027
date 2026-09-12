@@ -37,6 +37,10 @@ Participants create an account or sign in using a code sent to their email, then
 
 **Emailed links from this launcher work only on this computer.** Open them here. For phones or other computers, configure a reachable public HTTPS origin as described in the email guide. A successful SMTP connection check does not prove a gameplay email was delivered.
 
+## Deploy
+
+Frontend to Vercel, backend to an always-on host. See [docs/DEPLOY_VERCEL.md](docs/DEPLOY_VERCEL.md).
+
 ## Play a match
 
 1. **Set up your player and league.** Choose email hours, topics to avoid and family-friendly preferences. Create a league, adjust its rules, and share the invite code. A second player joining creates the first matchup.
