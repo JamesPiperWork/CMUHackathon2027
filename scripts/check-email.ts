@@ -3,8 +3,22 @@ import nodemailer from "nodemailer";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "../apps/api/src/config.js";
 import { loopbackEmailDemo } from "../apps/api/src/email-demo-config.js";
+import { captureConfiguration, captureTransportOptions } from "../apps/api/src/mail-capture.js";
 
 const env = process.env;
+if (env.EMAIL_DELIVERY_MODE === "mailpit") {
+  try {
+    loadConfig();
+    if (!captureConfiguration(env)) throw new Error("Invalid local capture configuration.");
+    const transport = nodemailer.createTransport(captureTransportOptions(env));
+    try { await transport.verify(); }
+    finally { transport.close(); }
+    console.log("Local Mailpit SMTP is ready on 127.0.0.1:1025. No message was sent. Captured messages stay on this computer; open http://localhost:8026.");
+  } catch {
+    console.error("Local mailbox check failed. Start with npm run email:capture; use matching loopback origins and the separate capture store. No external SMTP connection was attempted.");
+    process.exitCode = 1;
+  }
+} else {
 const problems: string[] = [];
 const emailPattern = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
 const placeholder = /replace|change.?me|your[-_ ]|example\.(com|org|net)|\.invalid/i;
@@ -120,4 +134,5 @@ if (problems.length) {
   } finally {
     transport.close();
   }
+}
 }

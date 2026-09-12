@@ -52,7 +52,7 @@ export async function saveAccount(service: GameService, userId: string, input: z
     if (current.localAuth && db.accounts?.some(account => account.userId !== userId &&
       (account.localAuth?.email === input.email.toLowerCase() || account.consent.contacts.email?.destination.toLowerCase() === input.email.toLowerCase())))
       throw new ApiError(409, "That email is already attached to another account.");
-    if (!service.simulated && (!sameEmail || !email?.verified || !["auth0", "verify"].includes(email.method)))
+    if (!service.simulated && (!sameEmail || !email?.verified || !(service.config.emailCapture ? ["captured"] : ["auth0", "verify"]).includes(email.method)))
       throw new ApiError(409, "Use the verified email from your sign-in account. Verify it with your identity provider and sign in again.");
     if (!current.consent.acceptedAt && !Object.values(input.channels).some(Boolean)) throw new ApiError(400, "Choose at least one challenge type to finish setup");
     const consent = {

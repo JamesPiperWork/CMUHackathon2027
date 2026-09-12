@@ -1,3 +1,4 @@
+import { publicPrankReveal } from "./prank-reveals.js";
 import {
   createCipheriv,
   createDecipheriv,
@@ -115,8 +116,8 @@ export class GameService {
   async initializeRules() {
     if (this.config.emailDemo) {
       const db = await this.readDb();
-      if (db.clockOffset || db.profiles.some(p => !db.accounts?.some(a => a.userId === p.id && a.consent.contacts.email?.verified && a.consent.contacts.email.method === "verify")))
-        throw new ApiError(503, "Use a separate empty data file for the real-email demo. Sample identities and advanced clocks cannot send real mail.");
+      if (db.clockOffset || db.profiles.some(p => !db.accounts?.some(a => a.userId === p.id && a.consent.contacts.email?.verified && a.consent.contacts.email.method === (this.config.emailCapture ? "captured" : "verify"))))
+        throw new ApiError(503, "Use a separate empty data file for this delivery mode. Local capture identities, real-email identities and sample data cannot be mixed.");
     }
     if (this.config.ruleSet === "email-casts-v2") await this.transact(db => initializeEmailRules(db, this.now(db)));
   }
@@ -170,7 +171,7 @@ export class GameService {
     return {
       ...process.env,
       APP_MODE: this.config.mode,
-      EMAIL_DELIVERY_MODE: this.config.emailDemo ? "smtp-demo" : "simulated",
+      EMAIL_DELIVERY_MODE: this.config.emailCapture ? "mailpit" : this.config.emailDemo ? "smtp-demo" : "simulated",
       EMAIL_DEMO_IMMEDIATE: this.config.emailDemoImmediate ? "true" : "false",
       PHONE_DELIVERY_MODE: this.config.phoneDemo ? "twilio-demo" : "simulated",
       API_ORIGIN: this.config.apiOrigin,
@@ -448,6 +449,7 @@ export class GameService {
           contentPolicy: s.contentPolicy,
           authorPrompt: s.authorPrompt,
           voiceAudio: publicVoiceAudio(s, this.providerEnv()),
+          prankReveal: publicPrankReveal(s, "author"),
           channel: s.channel,
           templateId: s.templateId,
           interest: s.interest,
@@ -493,6 +495,7 @@ export class GameService {
               ? {
                   decision,
                   reveal: {
+                    ...(s.isPhishing && decision?.choice === "trust" ? { prank: publicPrankReveal(s, "recipient") } : {}),
                     isPhishing: s.isPhishing,
                     explanation: s.content.explanation,
                     cueAnnotations: s.content.cueAnnotations,
@@ -643,6 +646,8 @@ export class GameService {
       let scenario = cast ? cast.draft : db.scenarios.find(
         (s) => s.authorId === userId && s.channel === input.channel,
       );
+      if (input.previousDraft?.senderDisplayName !== undefined && input.channel !== "email") throw new ApiError(400, "Only email casts have an editable sender name.");
+      const previousDraft = input.previousDraft ? { ...(input.channel === "email" && scenario?.channel === "email" ? { senderDisplayName: scenario.content.senderDisplayName } : {}), ...input.previousDraft } : undefined;
       if (input.refinement || input.previousDraft) {
         if (!cast || !scenario || prepared || !input.refinement || !input.previousDraft)
           throw new ApiError(400, "Generate a cast first, then describe the change you want.");
@@ -650,7 +655,7 @@ export class GameService {
         if (!promptBased && templateId !== scenario.templateId)
           throw new ApiError(400, "Keep the same story while refining an email.");
         validateScoutingMarkdown(input.refinement);
-        const previous = contentSchema.parse(messageBased ? messagePromptTeachingContent({ ...fixture, ...input.previousDraft }, input.channel) : promptBased ? emailPromptTeachingContent({ ...fixture, ...input.previousDraft }) : emailTeachingContent({ ...scenario.content, ...input.previousDraft }, scenario.templateId));
+        const previous = contentSchema.parse(messageBased ? messagePromptTeachingContent({ ...fixture, ...previousDraft }, input.channel) : promptBased ? emailPromptTeachingContent({ ...fixture, ...previousDraft }) : emailTeachingContent({ ...scenario.content, ...previousDraft }, scenario.templateId));
         if (!contentReview(previous).valid || !(messageBased ? messagePromptContentValid(previous, input.channel) : promptBased ? emailPromptContentValid(previous) : emailContentConsistent(previous, scenario.templateId)))
           throw new ApiError(400, "Keep a valid cast before asking for a new version.");
         this.enforceExclusions(db, recipient.userId, templateId, previous);
@@ -677,7 +682,7 @@ export class GameService {
       if (authorPrompt !== undefined) scenario.authorPrompt = authorPrompt;
       else delete scenario.authorPrompt;
       if (cast) { scenario.kind = cast.kind; scenario.slot = cast.slot; scenario.contentPolicy = messageBased ? "message-prompt-v1" : promptBased ? "email-prompt-v3" : "email-narrative-v1"; }
-      if (promptBased) scenario.content = input.previousDraft ? messageBased ? messagePromptTeachingContent({ ...fixture, ...input.previousDraft }, input.channel) : emailPromptTeachingContent({ ...fixture, ...input.previousDraft }) : fixture;
+      if (promptBased) scenario.content = previousDraft ? messageBased ? messagePromptTeachingContent({ ...fixture, ...previousDraft }, input.channel) : emailPromptTeachingContent({ ...fixture, ...previousDraft }) : fixture;
       if (prepared) {
         scenario.content = promptBased ? fixture : emailTeachingContent(fixture, templateId);
         scenario.source = "fixture"; scenario.model = "reviewed-fixture"; scenario.promptVersion = scenario.contentPolicy ?? "email-narrative-v1";
@@ -702,7 +707,7 @@ export class GameService {
           templateId: scenario.templateId,
           fixture,
           ...(promptBased ? { authorPrompt } : { scouting: { interest, markdown: scouting.markdown } }),
-          ...(input.refinement ? { refinement: input.refinement, previousDraft: structuredClone(input.previousDraft!) } : {}),
+          ...(input.refinement ? { refinement: input.refinement, previousDraft: structuredClone(previousDraft!) } : {}),
         },
       });
       return { scenarioId: scenario.id, queued: true };
@@ -712,7 +717,7 @@ export class GameService {
     userId: string,
     id: string,
     input: Partial<
-      Pick<ApprovedContent, "subject" | "bodyText" | "smsText" | "voiceScript">
+      Pick<ApprovedContent, "subject" | "bodyText" | "senderDisplayName" | "smsText" | "voiceScript">
     >,
   ) {
     await this.transact((db) => {
@@ -723,6 +728,7 @@ export class GameService {
       if (!draft) throw new ApiError(404, "Draft not found");
       if (draft.locked || draft.generationStatus === "pending")
         throw new ApiError(409, "Draft cannot be changed now");
+      if (input.senderDisplayName !== undefined && draft.channel !== "email") throw new ApiError(400, "Only email casts have an editable sender name.");
       let content = contentSchema.parse({ ...draft.content, ...input });
       if (draft.contentPolicy === "email-narrative-v1") content = emailTeachingContent(content, draft.templateId);
       if (draft.contentPolicy === "email-prompt-v3") content = emailPromptTeachingContent(content);
@@ -1085,7 +1091,7 @@ export class GameService {
     });
   }
   async reset(fresh = false) {
-    if (!this.simulated)
+    if (!this.simulated && !(this.config.emailCapture && fresh))
       throw new ApiError(403, "Demo controls disabled in live mode");
     await this.transact((db) => {
       const sessions = db.sessions;
@@ -1361,7 +1367,7 @@ export class GameService {
         status: "queued",
         ...(!simulated && s.channel === "email" ? {
           recipientAddressHash: emailRecipientHash(destination),
-          providerId: smtpMessageId(id, process.env.SMTP_FROM ?? ""),
+          providerId: smtpMessageId(id, this.config.emailCapture ? "notifications@demo.test" : process.env.SMTP_FROM ?? ""),
         } : {}),
         ...(!simulated && s.channel !== "email" ? { recipientPhoneHash: phoneDestinationHash(destination) } : {}),
         createdAt: this.now(db),

@@ -26,9 +26,9 @@ export function ConsentForm({ onDone }: { onDone?: () => void }) {
   return <Card style={{ gap: 18 }}>
     <View style={{ gap: 8 }}><Txt style={{ fontSize: 21, fontWeight: "700" }}>{existing ? "Your player details" : "Set up your player"}</Txt><Txt muted style={{ fontSize: 14, lineHeight: 22 }}>Choose where your friends’ bait can reach you. You can change your preferences or pause at any time.</Txt></View>
     <Field label="Display name" value={name} onChangeText={setName} maxLength={24} />
-    <Field label="Email address" value={email} onChangeText={setEmail} maxLength={254} editable={emailDelivery === "simulated"} autoCapitalize="none" keyboardType="email-address" placeholder="you@example.com" help={emailDelivery === "simulated" ? "This is your sign-in email. Changing it updates the address you use to sign in." : "Verified during sign-in. Game emails go to this inbox."} />
+    <Field label="Email address" value={email} onChangeText={setEmail} maxLength={254} editable={emailDelivery === "simulated"} autoCapitalize="none" keyboardType="email-address" placeholder="you@example.com" help={emailDelivery === "simulated" ? "This is your sign-in email. Changing it updates the address you use to sign in." : emailDelivery === "mailpit" ? "Local test address. Codes and challenges arrive in the separate test inbox." : "Verified during sign-in. Game emails go to this inbox."} />
     <Txt muted style={{ fontSize: 13, lineHeight: 21 }}>Your opponent has two casts each week, plus an optional seasonal Spear. Choose which kinds you want to receive.</Txt>
-    <Toggle label="Receive game emails" detail="Sent to your registered inbox when email delivery is connected." value={channels.email} onChange={value => setChannels({ ...channels, email: value })} />
+    <Toggle label="Receive game emails" detail={emailDelivery === "mailpit" ? "Delivered to the separate local test inbox on this computer." : "Sent to your registered inbox when email delivery is connected."} value={channels.email} onChange={value => setChannels({ ...channels, email: value })} />
     <Toggle label="Receive game texts" detail="Optional. Real texts also require your verified phone number and a connected text service." value={channels.sms} onChange={value => setChannels({ ...channels, sms: value })} />
     <Toggle label="Receive game calls" detail="Optional. Calls disclose the game and use an AI stock voice. Verify your phone before real calls can reach you." value={channels.voice} onChange={value => setChannels({ ...channels, voice: value })} />
     <Toggle label="Family-friendly themes" detail="Filter strong language in messages you receive." value={family} onChange={setFamily} />
@@ -42,7 +42,7 @@ export function ConsentForm({ onDone }: { onDone?: () => void }) {
         <Field label="Topics to avoid" value={excluded} onChangeText={setExcluded} maxLength={120} placeholder="For example: deliveries" help="Optional. Separate up to five topics with commas." />
       </View>}
     </View>
-    <Toggle label="I’m 18 or older and agree to play" detail="I agree to receive fictional game challenges through the channels I selected. Real deliveries are labeled as game messages." value={adult} onChange={setAdult} />
+    <Toggle label="I’m 18 or older and agree to play" detail="I agree to receive surprise fictional training messages through the channels I selected. Sender names and stories may be fictional; individual challenges may not announce the game." value={adult} onChange={setAdult} />
     <Button disabled={!valid} loading={busy} onPress={() => void safely(save())}>{existing ? "Save preferences" : "Continue to leagues"}</Button>
   </Card>;
 }

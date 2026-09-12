@@ -5,6 +5,7 @@ import { z } from "zod";
 import { blankConsent, type Database } from "@fp/shared";
 import { ApiError, type GameService } from "./service.js";
 import { gamePools } from "./repository.js";
+import { captureAddress, captureConfiguration, captureFrom, captureTransportOptions } from "./mail-capture.js";
 
 export interface EmailAuthOptions {
   env?: NodeJS.ProcessEnv;
@@ -30,13 +31,14 @@ function html(title: string, body: string) {
   return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(title)} · Fantasy Phishing</title><style>body{margin:0;background:#0e1d26;color:#f5f4ed;font:16px/1.6 system-ui;padding:24px}main{max-width:460px;margin:5vh auto}h1{line-height:1.2}label{display:block}input,button{box-sizing:border-box;font:inherit;padding:14px;border-radius:10px;width:100%;margin:8px 0 16px}input{border:1px solid #2b424c;background:#162b35;color:#f5f4ed}button{border:0;background:#96dec5;color:#17262a;cursor:pointer}a{color:#96dec5}.error{color:#f39c88}.muted{color:#adbdc3}</style><main><p class="muted">Fantasy Phishing · private email demo</p><h1>${escape(title)}</h1>${body}</main></html>`;
 }
 
-function accountFromVerifiedEmail(db: Database, email: string, now: number) {
+function accountFromVerifiedEmail(db: Database, email: string, now: number, captured = false) {
   db.accounts ??= [];
   // A matching unverified address on a sample profile is not proof of ownership.
-  const existing = db.accounts.find(account => !account.auth0Sub && account.consent.contacts.email?.method === "verify" && account.consent.contacts.email.verified && account.consent.contacts.email.destination.toLowerCase() === email);
+  const method = captured ? "captured" as const : "verify" as const;
+  const existing = db.accounts.find(account => !account.auth0Sub && account.consent.contacts.email?.method === method && account.consent.contacts.email.verified && account.consent.contacts.email.destination.toLowerCase() === email);
   const userId = existing?.userId ?? randomUUID();
   const consent = existing ? structuredClone(existing.consent) : blankConsent();
-  consent.contacts.email = { destination: email, verified: true, method: "verify", verifiedAt: now };
+  consent.contacts.email = { destination: email, verified: true, method, verifiedAt: now };
   if (existing) existing.consent = consent;
   else {
     db.accounts.push({ userId, consent });
@@ -57,6 +59,7 @@ export function registerEmailAuth(app: FastifyInstance, service: GameService, op
   const cookieOptions = { path: "/", httpOnly: true, secure, sameSite: crossHost && secure && appUrl.protocol === "https:" ? "none" as const : "lax" as const, maxAge: 600 };
   const requireEnabled = () => {
     if (service.config.mode !== "demo" || !service.config.emailDemo) throw new ApiError(404, "Email demo sign-in is disabled");
+    if (service.config.emailCapture && !captureConfiguration(env)) throw new ApiError(503, "Local mailbox capture configuration is invalid");
     const recipients = (env.EMAIL_DEMO_RECIPIENTS ?? "").split(",").map(value => value.trim()).filter(Boolean);
     if (recipients.some(value => !emailSchema.safeParse(value).success) || (env.SESSION_SECRET?.length ?? 0) < 32)
       throw new ApiError(503, "Email sign-in needs a valid session secret and optional invitation settings");
@@ -87,13 +90,13 @@ export function registerEmailAuth(app: FastifyInstance, service: GameService, op
   const sendCode = options.sendCode ?? (async ({ email, code }: { email: string; code: string }) => {
     const port = Number(env.SMTP_PORT ?? 587);
     const smtpSecure = env.SMTP_SECURE === "true";
-    if (!env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASS || !emailSchema.safeParse(env.SMTP_FROM).success || ![465, 587].includes(port) || (port === 465) !== smtpSecure)
+    if (!service.config.emailCapture && (!env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASS || !emailSchema.safeParse(env.SMTP_FROM).success || ![465, 587].includes(port) || (port === 465) !== smtpSecure))
       throw new ApiError(503, "Email sign-in needs authenticated SMTP with TLS on port 465 or STARTTLS on port 587");
-    const transport = nodemailer.createTransport({ host: env.SMTP_HOST, port, secure: smtpSecure, requireTLS: true, auth: { user: env.SMTP_USER, pass: env.SMTP_PASS }, connectionTimeout: 10000, greetingTimeout: 10000, socketTimeout: 15000 });
+    const transport = nodemailer.createTransport(service.config.emailCapture ? captureTransportOptions(env) : { host: env.SMTP_HOST, port, secure: smtpSecure, requireTLS: true, auth: { user: env.SMTP_USER, pass: env.SMTP_PASS }, connectionTimeout: 10000, greetingTimeout: 10000, socketTimeout: 15000 });
     let deadline: ReturnType<typeof setTimeout> | undefined;
     try {
       const result = await Promise.race([
-        transport.sendMail({ from: { name: "Fantasy Phishing", address: env.SMTP_FROM! }, to: email, subject: "Your Fantasy Phishing sign-in code", text: `Your Fantasy Phishing sign-in code is ${code}.\n\nIt expires in 10 minutes. Enter it only in the Fantasy Phishing app or sign-in page you opened. Never share this code with another player.\n\nThis is an account verification email for the private email demo, not a phishing challenge. If you did not request it, ignore it.`, disableFileAccess: true, disableUrlAccess: true }),
+        transport.sendMail({ from: { name: "Fantasy Phishing", address: service.config.emailCapture ? captureFrom : env.SMTP_FROM! }, to: email, subject: "Your Fantasy Phishing sign-in code", text: `Your Fantasy Phishing sign-in code is ${code}.\n\nIt expires in 10 minutes. Enter it only in the Fantasy Phishing app or sign-in page you opened. Never share this code with another player.\n\n${service.config.emailCapture ? "This verifies a local demo mailbox only. No external email ownership is established." : "This is an account verification email for the private email demo, not a phishing challenge. If you did not request it, ignore it."}`, disableFileAccess: true, disableUrlAccess: true }),
         new Promise<never>((_resolve, reject) => {
           deadline = setTimeout(() => { transport.close(); reject(new Error("Sign-in SMTP submission deadline exceeded")); }, 25000);
         }),
@@ -105,6 +108,7 @@ export function registerEmailAuth(app: FastifyInstance, service: GameService, op
     const allowed = requireEnabled();
     checkBrowser(request, input.csrf, form);
     if (env.EMAIL_DEMO_SEND_ENABLED !== "true") throw new ApiError(503, "Email sending hasn't been enabled for this demo yet");
+    if (service.config.emailCapture && !captureAddress(input.email)) throw new ApiError(400, "Use a local mailbox ending in @demo.test, such as alex@demo.test. Open the local mailbox on port 8026 for its code.");
     if (allowed && !allowed.has(input.email)) throw new ApiError(403, "Use an email address invited to this private demo");
     const timestamp = now();
     const id = randomBytes(32).toString("base64url");
@@ -140,7 +144,7 @@ export function registerEmailAuth(app: FastifyInstance, service: GameService, op
       record.attempts += 1;
       if (!equal(record.codeHash, digest("code", `${record.id}:${input.code}`))) return { error: true as const };
       record.consumedAt = timestamp;
-      return { userId: accountFromVerifiedEmail(db, record.email, timestamp) };
+      return { userId: accountFromVerifiedEmail(db, record.email, timestamp, service.config.emailCapture) };
     });
     if ("error" in result) throw new ApiError(401, "That code is invalid or expired. Request a new code if needed");
     const session = await service.createSession(result.userId, "player");

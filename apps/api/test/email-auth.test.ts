@@ -12,12 +12,14 @@ import { FileRepository } from "../src/repository.js";
 import { GameService, hash } from "../src/service.js";
 import { registerEmailAuth } from "../src/email-auth.js";
 import type { Config } from "../src/config.js";
+import { demoResetCapability, resetDemo } from "../src/demo-reset.js";
 
-async function setup(t: TestContext, options: { failSend?: boolean; enabled?: boolean; https?: boolean; crossHost?: boolean; sendEnabled?: boolean; recipientList?: string } = {}) {
+async function setup(t: TestContext, options: { capture?: boolean; failSend?: boolean; enabled?: boolean; https?: boolean; crossHost?: boolean; sendEnabled?: boolean; recipientList?: string } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "fp-email-login-"));
   const file = join(dir, "state.json");
   const repo = await FileRepository.open(file, () => createFreshSeed(Date.now(), false));
   const config: Config = { mode: "demo", emailDemo: options.enabled !== false, port: 0, apiOrigin: `${options.https ? "https" : "http"}://localhost:3001`, appOrigin: `${options.https ? "https" : "http"}://${options.crossHost ? "app.example.test" : "localhost"}:8081`, dataFile: file, mongodbUri: "", matchDurationMinutes: 10080, jobIntervalMs: 500 };
+  if (options.capture) { config.emailCapture = true; config.appOrigin = config.apiOrigin; }
   const service = new GameService(repo, config);
   const app = Fastify();
   await app.register(cookie);
@@ -25,7 +27,7 @@ async function setup(t: TestContext, options: { failSend?: boolean; enabled?: bo
   app.setErrorHandler((error, _request, reply) => reply.code(error instanceof z.ZodError ? 400 : (error as { statusCode?: number }).statusCode ?? 500).send({ error: error instanceof Error ? error.message : "Failed" }));
   let currentTime = Date.now();
   const messages: { email: string; code: string }[] = [];
-  registerEmailAuth(app, service, { env: { EMAIL_DEMO_SEND_ENABLED: options.sendEnabled === false ? "false" : "true", SESSION_SECRET: "email-test-secret-do-not-use-in-real-demo-123456", EMAIL_DEMO_RECIPIENTS: options.recipientList ?? Array.from({ length: 12 }, (_, i) => `player${i}@example.test`).join(",") }, now: () => currentTime, sendCode: async message => { messages.push(message); if (options.failSend) throw new Error("Mock SMTP failure"); } });
+  registerEmailAuth(app, service, { env: { ...(options.capture ? { APP_MODE: "demo", EMAIL_DELIVERY_MODE: "mailpit", EMAIL_DEMO_LOCAL_ONLY: "true", API_ORIGIN: config.apiOrigin, APP_ORIGIN: config.appOrigin, PORT: "3001" } : {}), EMAIL_DEMO_SEND_ENABLED: options.sendEnabled === false ? "false" : "true", SESSION_SECRET: "email-test-secret-do-not-use-in-real-demo-123456", EMAIL_DEMO_RECIPIENTS: options.recipientList ?? (options.capture ? "" : Array.from({ length: 12 }, (_, i) => `player${i}@example.test`).join(",")) }, now: () => currentTime, sendCode: async message => { messages.push(message); if (options.failSend) throw new Error("Mock SMTP failure"); } });
   await app.ready();
   t.after(async () => { await app.close(); await repo.close(); await rm(dir, { recursive: true, force: true }); });
   const browser = async () => {
@@ -228,4 +230,26 @@ test("a malformed optional invitation list blocks signup instead of opening regi
   const f = await setup(t, { recipientList: "*" });
   assert.equal((await f.app.inject("/api/auth/email")).statusCode, 503);
   assert.equal(f.messages.length, 0);
+});
+
+test("captured signup verifies a local mailbox only; its identity cannot start the real email service", async t => {
+  const f = await setup(t, { capture: true });
+  const browser = await f.browser();
+  assert.equal((await f.start(browser, "external@gmail.com")).statusCode, 400);
+  assert.equal(f.messages.length, 0);
+  const started = await f.start(browser, "alex@demo.test");
+  assert.equal(started.statusCode, 200, started.body);
+  const verified = await f.verify(browser, started.json<{ requestId: string }>().requestId, f.messages[0].code);
+  assert.equal(verified.statusCode, 200, verified.body);
+  const db = await f.repo.read(), account = db.accounts![0];
+  assert.equal(account.consent.contacts.email?.method, "captured");
+  assert.equal(account.consent.contacts.email?.verified, true);
+  assert.equal(account.consent.channels.email, false);
+  await f.service.initializeRules();
+  const external = new GameService(f.repo, { ...f.config, emailCapture: false });
+  await assert.rejects(external.initializeRules(), /cannot be mixed/);
+  assert.equal(demoResetCapability(f.service, db, account.userId), "all");
+  await resetDemo(f.service, account.userId);
+  assert.equal((await f.repo.read()).accounts?.length, 0);
+  assert.equal((await f.repo.read()).sessions.length, 0);
 });

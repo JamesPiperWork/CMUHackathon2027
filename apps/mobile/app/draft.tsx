@@ -1,3 +1,4 @@
+import { PrankPicker } from "../src/prank-picker";
 import React, { useEffect, useRef, useState } from "react";
 import { Linking, Platform, Pressable, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
@@ -73,6 +74,7 @@ export default function Draft() {
   const [sendResult, setSendResult] = useState<{ status: DeliveryStatus; reason?: string } | null>(null);
   const [voiceConfig, setVoiceConfig] = useState<{ ready: boolean; voiceLabel: string; checks: { code: string; ok: boolean; detail: string }[] } | null>(null);
   const [voiceConfigError, setVoiceConfigError] = useState(false);
+  const [revealBusy, setRevealBusy] = useState(false);
   const [heardRevision, setHeardRevision] = useState<string | null>(null);
   const noteCache = useRef<Record<string, string>>({});
   const waiting = !!state?.selectedLeagueId && state.selectedLeagueId !== state.match.leagueId;
@@ -105,7 +107,7 @@ export default function Draft() {
     setContent(draft?.channel === channel ? draft.content : null);
     setDirty(false);
     setHeardRevision(null);
-  }, [draft?.id, draft?.channel, channel, draft?.content.subject, draft?.content.bodyText, draft?.content.smsText, draft?.content.voiceScript]);
+  }, [draft?.id, draft?.channel, channel, draft?.content.subject, draft?.content.senderDisplayName, draft?.content.bodyText, draft?.content.smsText, draft?.content.voiceScript]);
   useEffect(() => {
     setStep(current => draft?.generationStatus === "pending" ? current : draft?.channel === channel ? "review" : "choose");
     setRefinement("");
@@ -166,7 +168,8 @@ export default function Draft() {
   const generating = draft?.generationStatus === "pending";
   const canCast = state.match.state === "drafting" || (emailCasts && state.match.state === "active");
   const locked = !!draft?.locked || !canCast;
-  const disabled = !!working || busy || generating;
+  const disabled = !!working || busy || generating || revealBusy;
+  const deliveryLabel = (status: DeliveryStatus, medium: Channel = channel) => state.emailDelivery === "mailpit" && medium === "email" && ["accepted", "delivered"].includes(status) ? "Captured in local inbox" : deliveryLabels[status];
   const key = channel === "email" ? "bodyText" : channel === "sms" ? "smsText" : "voiceScript";
   const max = channel === "email" ? 700 : channel === "sms" ? 300 : 440;
   const min = channel === "email" ? 20 : channel === "sms" ? 15 : 40;
@@ -206,13 +209,13 @@ export default function Draft() {
       recipientMemberId: state.opponent.id, channel,
       ...(emailCasts ? { authorPrompt: notes.trim() } : { interest: draft?.interest ?? "Board games", templateId: draft?.templateId ?? "parcel-update" }),
       ...(emailCasts ? { kind: selected.kind, slot: selected.slot } : {}),
-      ...(refine && content ? { refinement: refinement.trim(), previousDraft: channel === "email" ? { subject: content.subject, bodyText: content.bodyText } : { [key]: content[key] } } : {}),
+      ...(refine && content ? { refinement: refinement.trim(), previousDraft: channel === "email" ? { subject: content.subject, senderDisplayName: content.senderDisplayName, bodyText: content.bodyText } : { [key]: content[key] } } : {}),
     });
     if (handwritten) setStep("review");
   });
   const saveEdits = async () => {
     if (!draft || !content || !dirty) return;
-    await request(`/api/drafts/${draft.id}`, channel === "email" ? { subject: content.subject, bodyText: content.bodyText } : { [key]: content[key] }, "PATCH");
+    await request(`/api/drafts/${draft.id}`, channel === "email" ? { subject: content.subject, senderDisplayName: content.senderDisplayName, bodyText: content.bodyText } : { [key]: content[key] }, "PATCH");
     setDirty(false);
   };
   const createAudio = () => void run("audio", async () => {
@@ -244,8 +247,8 @@ export default function Draft() {
     </Row>
     {step === "review" && <Button small variant="ghost" style={{ alignSelf: "flex-start" }} disabled={disabled} onPress={() => navigate("choose")}>← Back to your idea</Button>}
     {!!sendResult && <Card style={{ gap: 8, borderColor: ["failed", "unknown", "cancelled"].includes(sendResult.status) ? C.coral : C.teal }}>
-      <Txt style={{ fontWeight: "700" }}>{deliveryLabels[sendResult.status]}</Txt>
-      <Txt muted style={{ lineHeight: 21 }}>{sendResult.reason || (sendResult.status === "accepted" ? "The provider accepted this cast. This does not yet confirm a delivery or a game response." : sendResult.status === "simulated" ? "This cast stayed in the local simulation. No email, text or call was sent." : sendResult.status === "queued" ? "This cast is being processed. Its status will update here." : "Check the cast’s status before taking another action.")}</Txt>
+      <Txt style={{ fontWeight: "700" }}>{deliveryLabel(sendResult.status)}</Txt>
+      <Txt muted style={{ lineHeight: 21 }}>{state.emailDelivery === "mailpit" && channel === "email" && ["accepted", "delivered"].includes(sendResult.status) ? "Captured this cast in the separate local inbox. No external email was sent." : sendResult.reason || (sendResult.status === "accepted" ? "The provider accepted this cast. This does not yet confirm a delivery or a game response." : sendResult.status === "simulated" ? "This cast stayed in the local simulation. No email, text or call was sent." : sendResult.status === "queued" ? "This cast is being processed. Its status will update here." : "Check the cast’s status before taking another action.")}</Txt>
     </Card>}
     {!!error && <Card style={{ borderColor: C.coral }}><Txt style={{ color: C.coral, lineHeight: 21 }}>{error}</Txt><Txt muted style={{ fontSize: 12, marginTop: 8 }}>Your current message is still here. Adjust it or try again.</Txt></Card>}
 
@@ -285,10 +288,11 @@ export default function Draft() {
     {step === "review" && content && <Card style={{ gap: 18 }}>
       <Row style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
         <Txt style={{ fontSize: 22, fontWeight: "800" }}>Your {medium}</Txt>
-        <Badge>{locked ? draft ? deliveryLabels[draft.deliveryStatus] : "Saved" : generating ? "Generating…" : draft?.source === "gemini" ? "Gemini draft" : "Prepared draft"}</Badge>
+        <Badge>{locked ? draft ? deliveryLabel(draft.deliveryStatus) : "Saved" : generating ? "Generating…" : draft?.source === "gemini" ? "Gemini draft" : "Prepared draft"}</Badge>
       </Row>
       {!locked && draft?.source !== "gemini" && !!draft?.generationReason && <Txt muted style={{ fontSize: 13, lineHeight: 21 }}>{draft.generationReason}</Txt>}
       {!locked ? <View style={{ gap: 14 }}>
+        {channel === "email" && <Field label="Sender display name" value={content.senderDisplayName} maxLength={60} editable={!disabled} onChangeText={value => { setContent({ ...content, senderDisplayName: value }); setDirty(true); }} help="Use a fictional club or character name. The sender’s email address stays the connected address." />}
         {channel === "email" && <Field label="Subject" value={content.subject} maxLength={100} editable={!disabled} onChangeText={value => { setContent({ ...content, subject: value }); setDirty(true); }} />}
         <Field label={channel === "voice" ? "What the call says" : "Message"} value={content[key]} multiline maxLength={max} editable={!disabled}
           onChangeText={value => { setContent({ ...content, [key]: value }); setDirty(true); }}
@@ -299,6 +303,7 @@ export default function Draft() {
         {channel === "email" && <Txt style={{ fontSize: 19, fontWeight: "700", lineHeight: 26 }}>{content.subject}</Txt>}
         <Txt style={{ fontSize: 15, lineHeight: 25 }}>{content[key]}</Txt>
       </View>}
+      {draft && <PrankPicker key={draft.id} draftId={draft.id} reveal={draft.prankReveal} disabled={disabled} locked={locked} onBusy={setRevealBusy} />}
       {channel === "voice" && <View style={{ gap: 13, paddingTop: 4 }}>
         <Divider />
         <Txt style={{ fontSize: 17, fontWeight: "700" }}>{voiceConfig?.voiceLabel || "Stock voice"}</Txt>
@@ -325,7 +330,7 @@ export default function Draft() {
           <Button variant="secondary" icon="sparkle" loading={working === "refine" || generating} disabled={disabled || !valid || spearUnavailable || attemptsLeft === 0 || !refinement.trim()} onPress={() => createMessage(false, true)}>Regenerate with changes</Button>
         </>}
       </>}
-      {locked && <>{immediate && canCast && draft?.deliveryStatus === "queued" && <Button loading={working === "send"} disabled={disabled || !deliveryReady || !voiceApproved} onPress={useBait}>{working === "send" ? "Sending…" : channel === "email" ? "Send email now" : channel === "sms" ? "Send text now" : "Send call"}</Button>}<Txt muted style={{ lineHeight: 21 }}>{state.match.state === "active" && draft ? `${deliveryLabels[draft.deliveryStatus]}. This cast can't be changed now.` : "This bait is saved and can't be changed now."}</Txt><Button onPress={() => navigate("ready")}>Back to your casts</Button></>}
+      {locked && <>{immediate && canCast && draft?.deliveryStatus === "queued" && <Button loading={working === "send"} disabled={disabled || !deliveryReady || !voiceApproved} onPress={useBait}>{working === "send" ? "Sending…" : channel === "email" ? "Send email now" : channel === "sms" ? "Send text now" : "Send call"}</Button>}<Txt muted style={{ lineHeight: 21 }}>{state.match.state === "active" && draft ? `${deliveryLabel(draft.deliveryStatus)}. This cast can't be changed now.` : "This bait is saved and can't be changed now."}</Txt><Button onPress={() => navigate("ready")}>Back to your casts</Button></>}
       <View>
         <Pressable accessibilityRole="button" accessibilityState={{ expanded: detailsOpen }} onPress={() => setDetailsOpen(!detailsOpen)} style={{ minHeight: 44, justifyContent: "center" }}><Txt muted style={{ fontSize: 13 }}>{detailsOpen ? "Hide learning notes −" : "Why it's bait +"}</Txt></Pressable>
         {detailsOpen && <View style={{ gap: 8 }}><Label>Learning notes</Label>{content.cueAnnotations.map((cue, index) => <Txt key={index} muted style={{ fontSize: 12, lineHeight: 20 }}>{cue}</Txt>)}<Txt muted style={{ fontSize: 12, lineHeight: 20 }}>{content.explanation}</Txt></View>}
@@ -341,7 +346,7 @@ export default function Draft() {
           <Row style={{ justifyContent: "space-between" }}>
             <Row style={{ flex: 1 }}><Icon name={candidate ? channelIcons[candidate.channel] : "hook"} color={candidate?.locked ? C.teal : C.muted} /><View style={{ flex: 1, gap: 4 }}>
               <Txt style={{ fontWeight: "700" }}>{item.label}{candidate ? ` · ${channelNames[candidate.channel]}` : item.kind === "spear" ? " · optional" : ""}</Txt>
-              <Txt muted style={{ fontSize: 12 }}>{candidate?.locked ? state.match.state !== "drafting" ? deliveryLabels[candidate.deliveryStatus] : "Ready to send" : candidate ? "Draft saved" : unavailable ? "Used this season" : "Not started"}</Txt>
+              <Txt muted style={{ fontSize: 12 }}>{candidate?.locked ? state.match.state !== "drafting" ? deliveryLabel(candidate.deliveryStatus, candidate.channel) : "Ready to send" : candidate ? "Draft saved" : unavailable ? "Used this season" : "Not started"}</Txt>
             </View></Row>
             {(candidate || canCast) && <Button small variant="ghost" disabled={disabled || unavailable} onPress={() => chooseCast(item)}>{candidate?.locked ? "View" : candidate ? "Continue" : unavailable ? "Used" : "Create"}</Button>}
           </Row>

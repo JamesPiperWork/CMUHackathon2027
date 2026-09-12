@@ -1,3 +1,5 @@
+import { challengeResponseScript } from "./challenge-response.js";
+import { prankRevealHtml, registerPrankRevealRoutes } from "./prank-reveals.js";
 import Fastify, { type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
@@ -149,7 +151,7 @@ export async function createServer(
   app.get("/api/config", async () => ({
     mode: service.config.mode,
     apiOrigin: service.config.apiOrigin,
-    emailDelivery: service.config.emailDemo ? "smtp-demo" : service.config.mode === "live" ? "live" : "simulated",
+    emailDelivery: service.config.emailCapture ? "mailpit" : service.config.emailDemo ? "smtp-demo" : service.config.mode === "live" ? "live" : "simulated",
     deliveryTiming: service.immediateDelivery ? "immediate" : "scheduled",
   }));
   app.post("/api/demo/session", async (request) => {
@@ -189,7 +191,7 @@ export async function createServer(
     return { ...await (await service.forSession(session)).state(session),
       demoReset: demoResetCapability(service, await service.readDb(), session.userId),
       deliveryTiming: service.immediateDelivery ? "immediate" : "scheduled",
-      emailDelivery: service.config.emailDemo ? "smtp-demo" : service.config.mode === "live" ? "live" : "simulated" };
+      emailDelivery: service.config.emailCapture ? "mailpit" : service.config.emailDemo ? "smtp-demo" : service.config.mode === "live" ? "live" : "simulated" };
   });
   app.get("/api/leagues", async (request) => leagues.list(await getSession(request)));
   app.post("/api/leagues", async (request) => {
@@ -285,6 +287,7 @@ export async function createServer(
         smsText: z.string().min(15).max(300).optional(),
         voiceScript: z.string().min(40).max(440).optional(),
         subject: z.string().min(3).max(100).optional(),
+        senderDisplayName: z.string().regex(/^[^\p{Cc}\p{Cf}\u2028\u2029]+$/u).trim().min(2).max(60).optional(),
       })
       .strict()
       .parse(request.body);
@@ -396,9 +399,9 @@ export async function createServer(
         (d) => d.scenarioId === scenario.id && d.recipientId === session.userId,
       );
       if (decision)
-        body += `<h2>${decision.correct ? "Bait spotted. Nicely played." : "You took a detour."}</h2><p>${escape(scenario.content.explanation)}</p><p>${decision.defenderPoints > 0 ? "+" : ""}${decision.defenderPoints} points</p>`;
+        body += (scenario.isPhishing && decision.choice === "trust" ? prankRevealHtml(scenario) : "") + `<h2>${decision.correct ? "Bait spotted. Nicely played." : "You took a detour."}</h2><p>${escape(scenario.content.explanation)}</p><p>${decision.defenderPoints > 0 ? "+" : ""}${decision.defenderPoints} points</p>`;
       else
-        body += `<p>Inspect freely. Only your submitted answer locks a decision.</p><form method="post" action="/r/${escape(request.params.token)}"><input type="hidden" name="csrf" value="${escape(session.csrf)}"><button name="choice" value="trust">Trust it</button><button name="choice" value="flag">Flag as phishing</button></form>`;
+        body += `<p>Inspect freely. Only your submitted answer locks a decision.</p><form id="challenge-response" method="post" action="/r/${escape(request.params.token)}"><input type="hidden" name="csrf" value="${escape(session.csrf)}"><button type="submit" name="choice" value="trust">Trust it</button><button type="submit" name="choice" value="flag">Flag as phishing</button><p id="challenge-response-status" role="status" aria-live="polite"></p></form>${challengeResponseScript}`;
     } else if (service.config.emailDemo)
       body += `<p>Sign in with your verified email to respond. Opening this page does not change your score.</p><a href="/auth/email?challenge=${encodeURIComponent(request.params.token)}">Sign in to respond</a>`;
     else if (service.simulated)
@@ -443,6 +446,7 @@ export async function createServer(
       ),
   );
   await registerProviderRoutes(app, service);
+  registerPrankRevealRoutes(app, service, getSession);
   registerVoiceAuthoringRoutes(app, service, getSession);
   registerPhoneEnrollmentRoutes(app, service, getSession);
   await registerLiveAuth(app, service, service.config);

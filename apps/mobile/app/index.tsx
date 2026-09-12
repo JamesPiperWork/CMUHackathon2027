@@ -32,9 +32,9 @@ export function Welcome() {
     <View style={{ gap: 13 }}><Hook size={58} /><Txt style={{ fontSize: 35, lineHeight: 41, fontWeight: "700", letterSpacing: -1 }}>A little bait.{"\n"}A friendly rivalry.</Txt><Txt muted style={{ fontSize: 16, lineHeight: 25 }}>Send playful phishing challenges to friends. Spot theirs. See who gets hooked.</Txt></View>
     <Card style={{ gap: 18, padding: 22 }}>
       <View style={{ gap: 6 }}><Txt style={{ fontSize: 22, fontWeight: "700" }}>{requestId ? "Check your email" : creating ? "Create your account" : "Welcome back"}</Txt><Txt muted style={{ fontSize: 14, lineHeight: 22 }}>{creating ? "Set up your player, then find your fishing crew." : "Sign in to pick up where you left off."}</Txt></View>
-      {emailDelivery === "smtp-demo" ? <View style={{ gap: 15 }}>
+      {["smtp-demo", "mailpit"].includes(emailDelivery) ? <View style={{ gap: 15 }}>
         {!requestId ? <>
-          <Field label="Email address" value={email} onChangeText={setEmail} editable={!busy} autoCapitalize="none" autoComplete="email" autoCorrect={false} keyboardType="email-address" placeholder="you@example.com" help="We’ll send a code to verify this inbox. Your game emails will arrive here too." />
+          <Field label="Email address" value={email} onChangeText={setEmail} editable={!busy} autoCapitalize="none" autoComplete="email" autoCorrect={false} keyboardType="email-address" placeholder={emailDelivery === "mailpit" ? "alex@demo.test" : "you@example.com"} help={emailDelivery === "mailpit" ? "Choose an address ending in @demo.test. Codes and challenges arrive in the local test inbox." : "We’ll send a code to verify this inbox. Your game emails will arrive here too."} />
           <Button loading={busy} disabled={!emailValid} onPress={() => void safely(startEmailSignIn(email.trim()).then(setRequestId))}>{creating ? "Create account with email" : "Email me a sign-in code"}</Button>
         </> : <>
           <Txt muted style={{ lineHeight: 22 }}>Enter the six-digit code sent to {email.trim()}. It expires in ten minutes.</Txt>
@@ -52,7 +52,7 @@ export function Welcome() {
         <Button loading={busy} disabled={!localValid} onPress={submitAccount}>{creating ? "Create account" : "Sign in"}</Button>
       </View> : <Button loading={busy} onPress={() => void signInLive()}>{creating ? "Create account" : "Sign in"}</Button>}
       {!requestId && <Button variant="ghost" small disabled={busy} onPress={switchMode}>{creating ? "Already have an account? Sign in" : "New here? Create an account"}</Button>}
-      <Txt muted style={{ fontSize: 12, lineHeight: 19 }}>{emailDelivery === "smtp-demo" ? "Game emails are clearly labeled. You choose your delivery preferences next." : mode === "demo" ? "Emails are simulated until delivery is connected." : "Private leagues for friends who choose to join."}</Txt>
+      <Txt muted style={{ fontSize: 12, lineHeight: 19 }}>{emailDelivery === "mailpit" ? "Local email rehearsal. Messages stay on this computer and never reach an external inbox." : emailDelivery === "smtp-demo" ? "You choose your delivery preferences next. Your league uses fictional training messages." : mode === "demo" ? "Emails are simulated until delivery is connected." : "Private leagues for friends who choose to join."}</Txt>
     </Card>
   </View>;
 }
@@ -82,7 +82,7 @@ export default function Home() {
   const rank = state.league.members.find(member => member.id === state.me.id)?.rank;
   const completedLabel = state.match.result === "incomplete" ? "This match needs a review." : state.match.result === "no-contest" ? "No result this week." : state.match.winnerId === state.me.id ? "You won this week." : state.match.winnerId ? `${state.opponent.name} won this week.` : "You tied this week.";
   const title = paused && !done ? "Taking a break." : done ? "This week’s result." : preparing ? "Let’s go fishing." : "Your lines are in the water.";
-  const subtitle = paused && !done ? "Your messages are paused. Resume when you’re ready." : done ? completedLabel : preparing ? `Create a little bait for ${state.opponent.name}.` : state.emailDelivery === "simulated" ? "Check each cast’s delivery status in Bait. Simulated casts stay in this app." : "Your opponent’s bait arrives through the channels you chose.";
+  const subtitle = paused && !done ? "Your messages are paused. Resume when you’re ready." : done ? completedLabel : preparing ? `Create a little bait for ${state.opponent.name}.` : state.emailDelivery === "simulated" ? "Check each cast’s delivery status in Bait. Simulated casts stay in this app." : state.emailDelivery === "mailpit" ? "Check the separate local email inbox for your opponent’s bait." : "Your opponent’s bait arrives through the channels you chose.";
   return <View style={{ maxWidth: 720, alignSelf: "center", width: "100%", gap: 20, paddingTop: 8 }}>
     <Title sub={subtitle}>{title}</Title>
     <Card testID="home-match" style={{ padding: width < 500 ? 23 : 30, gap: 24 }}>

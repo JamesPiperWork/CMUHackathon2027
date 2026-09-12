@@ -1,8 +1,14 @@
-# Run the real-email demo
+# External email setup and the current submission fallback
+
+**Current status:** Google disabled the configured Gmail sender. External sending is paused in `.env`; the earlier successful delivery check no longer establishes that this account can send.
+
+For the submission, run **`npm run email:capture`** and follow [SUBMISSION_DEMO.md](SUBMISSION_DEMO.md). The app remains at [localhost:3001](http://localhost:3001), and a separate email service at [localhost:8026](http://localhost:8026) offers preset `@demo.test` inboxes and a composer. Account codes and challenges travel through actual local SMTP; nothing goes to Gmail or Temp Mail. This mode has separate storage and local-only account verification, and leaves the saved credentials unchanged.
+
+The instructions below apply only after the external sender is restored or an appropriate provider is configured. Do not use `email:demo` to work around the disabled account; that command explicitly enables external sending.
 
 The app sends all account codes and clearly labeled game emails through one configured Gmail sender. Players enter their own receiving email during signup, verify it with a code, then set their preferences and create or join a league. Recipient addresses belong to their accounts, not the environment file.
 
-This checkout now has real-email mode saved in its private `.env`. Gmail SMTP authentication passed, and the user confirmed arrival of a labeled diagnostic email in the saved Temp Mail inbox on 2026-09-12. The launcher checks authentication again before starting; future inbox placement can still vary.
+The prior Gmail SMTP check and Temp Mail delivery succeeded before the account was disabled. Recover the account through Google or use a provider that permits the intended training format, then perform a fresh authentication and inbox delivery check. Local capture is the submission path while that work remains unresolved.
 
 ## 1. Add the two credentials locally
 
@@ -11,13 +17,13 @@ Open the repository-root `.env` (Git ignores it):
 - **`SMTP_PASS`**: a Gmail **app password**, not the normal Google account password. Sign into the dedicated sending account, enable 2-Step Verification, and create an app password named “Fantasy Phishing demo.” Paste its 16 characters here without display spaces. Google may not offer app passwords for certain organization accounts, security-key-only 2-Step Verification, or Advanced Protection. [Google app-password instructions](https://support.google.com/accounts/answer/185833?hl=en).
 - **`GEMINI_API_KEY`**: the existing parallel project's Gemini API key. The generator uses main's `gemini-3.6-flash` model, adjustable with `GEMINI_MODEL`. Until a key works, the app identifies prepared drafts honestly. [Gemini model documentation](https://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash).
 
-Keep `SMTP_USER` and `SMTP_FROM` set to the same dedicated Gmail account. Players cannot change the sender. `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, and `SMTP_SECURE=false` select mandatory STARTTLS, not an unencrypted SMTP connection. [Google SMTP settings](https://support.google.com/mail/answer/7104828?hl=en).
+For a restored Gmail account, keep `SMTP_USER` and `SMTP_FROM` set to the same dedicated account. Players may choose a fictional sender display name in the bait editor, but cannot change the authenticated From address. `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, and `SMTP_SECURE=false` select mandatory STARTTLS, not an unencrypted SMTP connection. [Google SMTP settings](https://support.google.com/mail/answer/7104828?hl=en).
 
 `SESSION_SECRET` and `TOKEN_SECRET` have been generated locally. For a different checkout, copy `.env.email-demo.example` and generate two distinct secrets with `openssl rand -hex 32`. Keep all credentials in `.env`, never chat, source control, or `EXPO_PUBLIC_*` settings.
 
 ## 2. Start the email demo on this computer
 
-Stop the existing `npm run dev` server with **Control+C**, then run:
+Only after the sender is usable again, check it with `npm run email:check`, then set `EMAIL_DEMO_SEND_ENABLED=true`. Stop the existing server with **Control+C** and run:
 
 ```sh
 npm run dev
@@ -43,7 +49,7 @@ A successful SMTP check proves authentication, not inbox placement or delivery. 
 2. Complete player setup, enable game email, create a league, and let the second player join with its invite code.
 3. On **Bait**, choose a cast slot and **Email**, then enter context about your opponent and your message idea. Generate one email, edit its subject/body directly, or ask for a revision. Choose Cast 1, Cast 2, or the optional seasonal Spear.
 4. Click **Send email now**. This sends that cast immediately and starts the week if needed. The button waits for the provider response; “Accepted by mail provider” means Gmail accepted it, not that it reached the inbox. You can send the second cast and seasonal Spear immediately too. Weekly cast limits, verified enrollment and pause preferences still apply.
-5. Open the recipient's real inbox. Messages come from the configured Gmail sender and are labeled `[Game simulation]`.
+5. Open the recipient's real inbox. The default external profile uses the configured sender and labels the subject `[Game simulation]`. An approved training profile can use the fictional display name and unprefixed subject with `EMAIL_PRESENTATION=training`, a documented `EMAIL_PERMISSION_REFERENCE`, and `EMAIL_FORMAT_SUPPORTED=true`. Required provider disclosure text still applies; these settings do not independently obtain provider permission.
 6. Open the link, sign in as its assigned recipient if asked, then choose the explicit response. A preview/scanner GET alone never changes the score.
 
 **Receiving inbox options:** a disposable Temp Mail address can test a disposable synthetic account, but it cannot be the SMTP sender. Its public-service terms provide no expectation of email privacy, free messages may last only 1–2 hours, and domains may change. A sign-in code grants access to the game account, so use only fictional profiles there. [Temp Mail FAQ](https://temp-mail.org/faq), [terms](https://temp-mail.org/terms-of-service).
@@ -56,17 +62,17 @@ Leave `EMAIL_DEMO_RECIPIENTS` blank. It is an optional invitation restriction fo
 
 A durable queue records a cast before the provider attempt so a refresh or duplicate click cannot send it twice. In immediate testing, clicking **Send email now** claims that single queued job and waits for its result. There is no one-minute delay, contact-hour delay or daily pacing in this explicitly enabled labeled demo. “Queued” may briefly remain while an existing attempt is running; “Delivery unconfirmed” requires checking the original attempt rather than automatically retrying it.
 
-The previous behavior delayed the first cast by at least one minute and applied contact windows plus one email per recipient's local day. Those scheduling rules remain available with `EMAIL_DEMO_IMMEDIATE=false`, and remain in full live mode. `npm run dev` follows `.env`; this checkout now selects real email. A status of “Simulated delivery” always means no external send happened, regardless of whether credentials are present.
+The previous behavior delayed the first cast by at least one minute and applied contact windows plus one email per recipient's local day. Those scheduling rules remain available with `EMAIL_DEMO_IMMEDIATE=false`, and remain in full live mode. `npm run dev` follows `.env`; this checkout retains its external configuration with sending paused. Use `npm run email:capture` explicitly for the current local submission. A status of “Simulated delivery” always means no external send happened, regardless of whether credentials are present.
 
 ## If a receiving inbox stops working
 
-First check the exact signup address, spam folder, and any Gmail bounce notification. A successful SMTP acceptance is not a delivery receipt. Temp Mail inboxes can expire; create a new account with its current address and verify the new inbox. For a stable rehearsal, use two `+` aliases of a Gmail inbox you control. Do not retry a cast whose submission is unknown: it may already have been sent. No alternate provider is needed for the confirmed Gmail-to-Temp-Mail path.
+First check the exact signup address, spam folder, and any Gmail bounce notification. A successful SMTP acceptance is not a delivery receipt. Temp Mail inboxes can expire; create a new account with its current address and verify the new inbox. For a stable rehearsal, use two `+` aliases of a Gmail inbox you control. Do not retry a cast whose submission is unknown: it may already have been sent. The disabled Gmail account must be restored before that route is usable. A Temp Mail receiving address does not replace the sending service; local capture avoids this dependency for the submission.
 
 ## Reset from the app
 
 Open **Account & preferences**:
 
-- In local simulation, **Reset demo** removes accounts, leagues, sessions, and game progress and returns to account creation.
+- In local simulation or local mailbox capture, **Reset demo** removes accounts, leagues, sessions, and game progress and returns to account creation. Captured mailbox messages remain in the separate email service; use the newest verification code after starting again.
 - In real-email mode, sign in with the verified email matching `SMTP_USER`. The organizer's **Reset active leagues** archives games and cancels queued work while retaining player accounts, email evidence and daily send limits. New leagues start fresh. Already-sent messages cannot be recalled.
 
 Both buttons show a confirmation and a Cancel option. Do not use the legacy scripted scoring shortcut for actual email participants. For a completely separate rehearsal data file, use manual configuration below; do not delete delivery evidence merely to bypass limits.

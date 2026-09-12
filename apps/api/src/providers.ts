@@ -32,6 +32,8 @@ import { loopbackEmailDemo } from "./email-demo-config.js";
 import { registerEmailReceiptRoutes, smtpMessageId } from "./email-receipts.js";
 import { phoneDemoMode, publicHttpsOrigin } from "./phone-config.js";
 import { readVoiceFile, voiceAudioApproved, voiceConfiguration } from "./voice-audio.js";
+import { captureAddress, captureConfiguration, captureFrom, captureTransportOptions, mailCaptureMode } from "./mail-capture.js";
+import { gameplayEmailPresentation } from "./email-presentation.js";
 
 type Env = NodeJS.ProcessEnv;
 const digest = (value: string) =>
@@ -41,7 +43,7 @@ const flag = (env: Env, key: string) => env[key] === "true";
 const present = (env: Env, ...keys: string[]) =>
   keys.every((key) => Boolean(env[key]?.trim()));
 const emailDemo = (env: Env) => env.APP_MODE === "demo" && env.EMAIL_DELIVERY_MODE === "smtp-demo";
-const isLive = (env: Env) => env.APP_MODE === "live" || emailDemo(env);
+const isLive = (env: Env) => env.APP_MODE === "live" || emailDemo(env) || mailCaptureMode(env);
 function allAttempts(db: Database): DeliveryAttempt[] {
   return [
     ...new Map(
@@ -134,7 +136,7 @@ export function getReadiness(
         : 1;
     const verified = Boolean(
       contact?.verified &&
-      contact.method !== "demo" &&
+      ["auth0", "operator", "verify"].includes(contact.method) &&
       contact.verifiedAt &&
       (contact.method !== "operator" || contact.evidence?.trim()) &&
       (channel === "email"
@@ -142,6 +144,18 @@ export function getReadiness(
         : ["operator", "verify"].includes(contact.method) &&
           /^\+1\d{10}$/.test(contact.destination)),
     );
+    if (mailCaptureMode(env)) {
+      const conditions = [
+        { name: "Local mailbox capture", ok: captureConfiguration(env), detail: "Mailpit receives SMTP on 127.0.0.1:1025 only. Open its mailbox at http://localhost:8026. Nothing is sent externally." },
+        { name: "Email capture enabled", ok: channel === "email" && flag(env, "EMAIL_DEMO_SEND_ENABLED"), detail: "Only email can be captured. Real phone sending is disabled in this mode." },
+        { name: "Local mailbox sign-in", ok: Boolean(contact?.verified && contact.method === "captured" && contact.verifiedAt && captureAddress(contact.destination)), detail: "Sign in using a @demo.test address and the code in Mailpit. This does not verify ownership of an external inbox." },
+        { name: "Participant setup", ok: Boolean(member?.accepted && c?.adult && c.acceptedAt && c.version), detail: "Finish player and league setup." },
+        { name: "Active channel consent", ok: Boolean(c?.channels[channel] && !c.paused), detail: "Enable this channel in player settings." },
+        { name: "Signing secrets", ok: (env.SESSION_SECRET?.length ?? 0) >= 32 && (env.TOKEN_SECRET?.length ?? 0) >= 32, detail: "Session and challenge tokens require strong local secrets." },
+      ];
+      const missing = conditions.filter(condition => !condition.ok);
+      return { channel, status: missing.length ? "blocked" as const : "ready" as const, reason: missing.length ? missing.map(condition => condition.name).join("; ") : "Ready to capture in the local Mailpit mailbox; no external delivery.", conditions };
+    }
     const conditions = [
       {
         name: "Real sending authorized",
@@ -295,8 +309,8 @@ export function getReadiness(
           "Daily quota": { name: "Demo cast limits", ok: true, detail: "Immediate demo testing allows the week's two email casts and seasonal Spear without a daily delay. Each cast is submitted at most once." },
         } : {}),
         ...(loopbackEmailDemo(env) ? { "Public HTTPS": { name: "Local email rehearsal", ok: channel === "email", detail: "The app uses one loopback origin. Open emailed links on this computer; other devices need public HTTPS." } } : {}),
-        "Real sending authorized": { name: "Labeled email demo enabled", ok: channel === "email" && flag(env, "EMAIL_DEMO_SEND_ENABLED"), detail: "EMAIL_DEMO_SEND_ENABLED=true enables clearly identified game emails only." },
-        "Provider permission recorded": { name: "Game labeling", ok: channel === "email", detail: "The sender is Fantasy Phishing and every email is explicitly labeled as a game simulation." },
+        "Real sending authorized": { name: "Email demo enabled", ok: channel === "email" && flag(env, "EMAIL_DEMO_SEND_ENABLED"), detail: "EMAIL_DEMO_SEND_ENABLED=true enables game emails under the configured presentation." },
+        "Provider permission recorded": { name: "Email presentation", ok: channel === "email", detail: "Emails identify the game by default. Fictional training presentation requires EMAIL_PRESENTATION=training, a recorded EMAIL_PERMISSION_REFERENCE, and EMAIL_FORMAT_SUPPORTED=true." },
         "Registration recorded": { name: "Registered game recipient", ok: Boolean(contact && (!invitedEmails.length || invitedEmails.includes(contact.destination.toLowerCase()))), detail: "Bait goes to the recipient's verified signup address. EMAIL_DEMO_RECIPIENTS optionally restricts invitations." },
         "Format supported": { name: "Email-only demo", ok: channel === "email", detail: "Text and voice sending remain disabled in this mode." },
         "MongoDB and Auth0": { name: "Verified email sign-in", ok: contact?.method === "verify" && verified, detail: "An expiring single-use email code verifies each account; this private pilot uses one API process." },
@@ -484,11 +498,14 @@ export class SmtpAdapter implements DeliveryAdapter {
     }>,
   ) {}
   async send(e: DeliveryEnvelope): Promise<DeliveryResult> {
+    const captured = this.env.EMAIL_DELIVERY_MODE === "mailpit";
+    if (captured && (!captureConfiguration(this.env) || e.channel !== "email" || !captureAddress(e.destination))) return { status: "failed", reason: "Local capture only accepts @demo.test email recipients with loopback configuration." };
+    const from = captured ? captureFrom : this.env.SMTP_FROM;
     const send =
       this.sendMail ??
       ((message) =>
         nodemailer
-          .createTransport({
+          .createTransport(captured ? captureTransportOptions(this.env) : {
             host: this.env.SMTP_HOST,
             port: Number(this.env.SMTP_PORT ?? 587),
             secure: flag(this.env, "SMTP_SECURE"),
@@ -500,17 +517,16 @@ export class SmtpAdapter implements DeliveryAdapter {
           })
           .sendMail(message));
     try {
+      const presentation = gameplayEmailPresentation(e.content, e.actionUrl, this.env);
       const result = await send({
         from: {
-          name: emailDemo(this.env) ? "Fantasy Phishing" : e.content.senderDisplayName,
-          address: this.env.SMTP_FROM,
+          name: presentation.fromName,
+          address: from,
         },
         to: e.destination,
-        subject: emailDemo(this.env) ? `[Game simulation] ${e.content.subject}` : e.content.subject,
-        text: [emailDemo(this.env) ? "This is a Fantasy Phishing game simulation you agreed to receive. The story below is fictional. No passwords, payments, or personal information are requested." : this.env.EMAIL_DISCLOSURE_TEXT, e.content.bodyText, e.actionUrl, emailDemo(this.env) ? `Manage or pause game emails: ${this.env.APP_ORIGIN}/settings` : undefined]
-          .filter(Boolean)
-          .join("\n\n"),
-        messageId: smtpMessageId(e.attemptId, this.env.SMTP_FROM ?? ""),
+        subject: presentation.subject,
+        text: presentation.text,
+        messageId: smtpMessageId(e.attemptId, from ?? ""),
         headers: { "X-Fantasy-Phishing-Attempt": e.attemptId, "X-Fantasy-Phishing-Recipient": e.recipientId },
         disableFileAccess: true,
         disableUrlAccess: true,
@@ -518,8 +534,8 @@ export class SmtpAdapter implements DeliveryAdapter {
       if (result.accepted?.length)
         return {
           status: "accepted",
-          providerId: result.messageId ?? smtpMessageId(e.attemptId, this.env.SMTP_FROM ?? ""),
-          reason: "SMTP accepted submission; inbox delivery is unconfirmed.",
+          providerId: result.messageId ?? smtpMessageId(e.attemptId, from ?? ""),
+          reason: captured ? "Captured by local Mailpit SMTP. Open http://localhost:8026; no external inbox was contacted." : "SMTP accepted submission; inbox delivery is unconfirmed.",
         };
       if (result.rejected?.length)
         return { status: "failed", reason: "SMTP rejected the destination." };

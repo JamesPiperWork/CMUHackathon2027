@@ -23,8 +23,8 @@ export type DeliveryStatus =
 export type ChannelStatus = "simulated" | "blocked" | "ready" | "error";
 export const contentSchema = z
   .object({
-    subject: z.string().min(3).max(100),
-    senderDisplayName: z.string().min(2).max(60),
+    subject: z.string().min(3).max(100).regex(/^[^\p{Cc}\p{Cf}\u2028\u2029]+$/u),
+    senderDisplayName: z.string().min(2).max(60).regex(/^[^\p{Cc}\p{Cf}\u2028\u2029]+$/u),
     bodyText: z.string().min(20).max(700),
     smsText: z.string().min(15).max(300),
     voiceScript: z.string().min(40).max(440),
@@ -62,7 +62,7 @@ export interface Consent {
       {
         destination: string;
         verified: boolean;
-        method: "demo" | "auth0" | "operator" | "verify";
+        method: "demo" | "auth0" | "operator" | "verify" | "captured";
         verifiedAt?: number;
         evidence?: string;
       }
@@ -83,6 +83,7 @@ export interface PlayerAccount {
   localAuth?: { email: string; passwordHash: string };
 }
 export interface Scenario {
+  prankReveal?: import("./prank-reveals").PrankReveal;
   voiceAudio?: VoiceAudio;
   kind?: "regular" | "spear";
   slot?: 1 | 2;
@@ -309,6 +310,7 @@ export interface ScenarioPublic {
   actionUrl?: string;
   decision?: Decision;
   reveal?: {
+    prank?: import("./prank-reveals").PrankRevealPublic;
     isPhishing: boolean;
     explanation: string;
     cueAnnotations: string[];
@@ -316,6 +318,7 @@ export interface ScenarioPublic {
   };
 }
 export interface DraftPublic {
+  prankReveal?: import("./prank-reveals").PrankRevealPublic;
   voiceAudio?: VoiceAudioPublic;
   kind?: "regular" | "spear";
   slot?: 1 | 2;
@@ -383,7 +386,7 @@ export interface Recap {
 }
 export interface PlayerState {
   demoReset?: "all" | "active-leagues" | null;
-  emailDelivery?: "simulated" | "smtp-demo" | "live";
+  emailDelivery?: "simulated" | "smtp-demo" | "mailpit" | "live";
   deliveryTiming?: "immediate" | "scheduled";
   setupStage?: "player" | "league" | "ready";
   castRules: { version: "email-casts-v2" | "multichannel-v1"; regularLimit: number; spearLimit: number; spearUsed: number; spearRemaining: number };
@@ -429,7 +432,7 @@ export interface GenerateRequest {
   templateId?: string;
   authorPrompt?: string;
   refinement?: string;
-  previousDraft?: Partial<Pick<ApprovedContent, "subject" | "bodyText" | "smsText" | "voiceScript">>;
+  previousDraft?: Partial<Pick<ApprovedContent, "subject" | "bodyText" | "senderDisplayName" | "smsText" | "voiceScript">>;
 }
 export const generateSchema = z
   .object({
@@ -441,7 +444,7 @@ export const generateSchema = z
     templateId: z.enum(["ticket-drop", "parcel-update", "game-night"]).optional(),
     authorPrompt: z.string().trim().min(3).max(1800).optional(),
     refinement: z.string().trim().min(1).max(500).optional(),
-    previousDraft: z.object({ subject: z.string().min(3).max(100).optional(), bodyText: z.string().min(20).max(700).optional(), smsText: z.string().min(15).max(300).optional(), voiceScript: z.string().min(40).max(440).optional() }).strict().optional(),
+    previousDraft: z.object({ subject: z.string().min(3).max(100).optional(), senderDisplayName: z.string().regex(/^[^\p{Cc}\p{Cf}\u2028\u2029]+$/u).trim().min(2).max(60).optional(), bodyText: z.string().min(20).max(700).optional(), smsText: z.string().min(15).max(300).optional(), voiceScript: z.string().min(40).max(440).optional() }).strict().optional(),
   })
   .strict()
   .refine(value => value.authorPrompt !== undefined || (value.interest !== undefined && value.templateId !== undefined), "Describe your idea for this cast.")
@@ -545,7 +548,7 @@ export interface GenerationInput {
   fixture: ApprovedContent;
   scouting?: { interest: Interest; markdown: string };
   refinement?: string;
-  previousDraft?: Partial<Pick<ApprovedContent, "subject" | "bodyText" | "smsText" | "voiceScript">>;
+  previousDraft?: Partial<Pick<ApprovedContent, "subject" | "bodyText" | "senderDisplayName" | "smsText" | "voiceScript">>;
 }
 export interface GenerationResult {
   content: ApprovedContent;

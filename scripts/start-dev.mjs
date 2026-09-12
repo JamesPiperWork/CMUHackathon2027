@@ -15,7 +15,9 @@ function run(command, args) {
   });
 }
 try {
-  if (process.env.EMAIL_DELIVERY_MODE === "smtp-demo") {
+  if (process.env.EMAIL_DELIVERY_MODE === "mailpit") {
+    await run(process.execPath, ["scripts/start-capture.mjs"]);
+  } else if (process.env.EMAIL_DELIVERY_MODE === "smtp-demo") {
     console.log("Using the real-email configuration saved in .env. Checking SMTP without sending mail, then building the app.");
     await run(process.execPath, ["node_modules/tsx/dist/cli.mjs", "scripts/check-email.ts"]);
     await run(process.execPath, ["scripts/build.mjs"]);

@@ -38,7 +38,7 @@ interface SessionContext {
   connected: boolean;
   mode: "demo" | "live";
   token: string | null;
-  emailDelivery: "simulated" | "smtp-demo" | "live";
+  emailDelivery: "simulated" | "smtp-demo" | "mailpit" | "live";
   startEmailSignIn: (email: string) => Promise<string>;
   verifyEmailSignIn: (requestId: string, code: string) => Promise<void>;
   createAccount: (name: string, email: string, password: string) => Promise<void>;
@@ -63,7 +63,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     [error, setError] = useState<string | null>(null),
     [connected, setConnected] = useState(false),
     [mode, setMode] = useState<"demo" | "live">("demo");
-  const [emailDelivery, setEmailDelivery] = useState<"simulated" | "smtp-demo" | "live">("simulated");
+  const [emailDelivery, setEmailDelivery] = useState<"simulated" | "smtp-demo" | "mailpit" | "live">("simulated");
   const emailCsrf = useRef("");
   const tokenRef = useRef<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
@@ -165,7 +165,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     const current = () => !refreshSuspended.current && requestEpoch === sessionEpoch.current && requestToken === tokenRef.current && sequence === refreshSequence.current;
     try {
       if (!requestToken) {
-        const config = await fetchApi<{ mode: "demo" | "live"; emailDelivery: "simulated" | "smtp-demo" | "live" }>("/api/config");
+        const config = await fetchApi<{ mode: "demo" | "live"; emailDelivery: "simulated" | "smtp-demo" | "mailpit" | "live" }>("/api/config");
         if (!current()) return;
         setMode(config.mode);
         setEmailDelivery(config.emailDelivery);
@@ -191,7 +191,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     let epoch = sessionEpoch.current;
     void (async () => {
       try {
-        const config = await fetchApi<{ mode: "demo" | "live"; emailDelivery: "simulated" | "smtp-demo" | "live" }>("/api/config");
+        const config = await fetchApi<{ mode: "demo" | "live"; emailDelivery: "simulated" | "smtp-demo" | "mailpit" | "live" }>("/api/config");
         if (!active || epoch !== sessionEpoch.current) return;
         setMode(config.mode); setEmailDelivery(config.emailDelivery);
         const saved = await stored();

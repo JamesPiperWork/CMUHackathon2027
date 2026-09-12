@@ -5,14 +5,14 @@ import { gamePools } from "./repository.js";
 
 export function demoResetCapability(service: GameService, db: Database, userId: string): "all" | "active-leagues" | null {
   const account = accountFor(db, userId);
-  if (service.simulated) return "all";
+  if (service.simulated || (service.config.emailCapture && account.consent.contacts.email?.method === "captured")) return "all";
   const email = account.consent.contacts.email;
   return service.config.emailDemo && email?.verified && email.method === "verify" &&
     email.destination.toLowerCase() === process.env.SMTP_USER?.trim().toLowerCase() ? "active-leagues" : null;
 }
 
 export async function resetDemo(service: GameService, userId: string) {
-  if (service.simulated) {
+  if (service.simulated || service.config.emailCapture) {
     accountFor(await service.readDb(), userId);
     await service.reset(true);
     return { ok: true, preserveSession: false };

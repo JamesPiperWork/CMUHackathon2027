@@ -4,7 +4,19 @@ A private game between friends: create phishing bait and compete in weekly head-
 
 A fresh installation has **zero accounts, leagues or drafts**. Create an account and choose your player preferences before joining a league. Email challenges belong in participants’ email inboxes; there is no in-app inbox.
 
-## Run the app
+## Run the submission demo
+
+The previous Gmail sender is disabled by Google, and external sending is paused. Use the separate local email service for the submission:
+
+```sh
+npm run email:capture
+```
+
+Open the [app](http://localhost:3001), [Large/Compact preview](http://localhost:3001/mobile-preview), and [separate email inbox](http://localhost:8026). The inbox offers Alex, Jordan and Casey addresses, incoming mail and a composer. Use those `@demo.test` addresses to create app accounts; their sign-in codes and bait arrive through local SMTP. The app still has its original three pages.
+
+See [SUBMISSION_DEMO.md](SUBMISSION_DEMO.md) for installation and the walkthrough. This command starts Mailpit plus the separate inbox, preserves `.env`, uses `data/capture-demo.json`, and never relays mail to Gmail or Temp Mail. It keeps Gemini and ElevenLabs available for drafting and audio previews. Stop the services together with **Control+C**.
+
+## Other development modes
 
 Use Node.js **22.13 or later** and npm.
 
@@ -13,7 +25,7 @@ npm ci
 npm run dev
 ```
 
-`npm run dev` follows `.env`: `EMAIL_DELIVERY_MODE=smtp-demo` checks SMTP, builds, and serves the real-email app at [localhost:3001](http://localhost:3001). This checkout is configured that way. The checked-in `.env.example` instead selects simulation for new installations, with these URLs:
+`npm run dev` follows `.env`: `EMAIL_DELIVERY_MODE=smtp-demo` checks SMTP, builds, and serves the real-email app at [localhost:3001](http://localhost:3001). That command does not automatically switch away from a disabled SMTP sender; use `email:capture` above for the current submission. The checked-in `.env.example` instead selects simulation for new installations, with these URLs:
 
 - [Desktop app](http://localhost:8081)
 - [Large/Compact phone preview](http://localhost:3001/mobile-preview)
@@ -25,7 +37,7 @@ For two players, use separate browser profiles or private windows, especially wh
 
 ## Send real email from this computer
 
-Put SMTP credentials and session/token secrets in the uncommitted root `.env`, following [EMAIL_DEMO_SETUP.md](EMAIL_DEMO_SETUP.md). Then stop the development server and run:
+After recovering the sending account or configuring a provider that permits your training format, put its SMTP credentials and session/token secrets in the uncommitted root `.env`, following [EMAIL_DEMO_SETUP.md](EMAIL_DEMO_SETUP.md). Then stop the development server and run:
 
 ```sh
 npm run email:demo
@@ -33,7 +45,7 @@ npm run email:demo
 
 The launcher loads `.env`, checks SMTP without sending email, builds the app, and serves the API and web app together at [localhost:3001](http://localhost:3001). The [phone preview](http://localhost:3001/mobile-preview) keeps the desktop/Large/Compact options. This mode uses separate `data/email-demo.json` storage and binds the server to loopback.
 
-Participants create an account or sign in using a code sent to their email, then choose their name and delivery preferences. `EMAIL_DEMO_RECIPIENTS` is optional: a populated list restricts signup and delivery; blank uses participants’ verified signup addresses. Challenges use a truthful Fantasy Phishing sender and are clearly labeled as game simulations.
+Participants create an account or sign in using a code sent to their email, then choose their name and delivery preferences. `EMAIL_DEMO_RECIPIENTS` is optional: a populated list restricts signup and delivery; blank uses participants’ verified signup addresses. The default external email profile labels messages as game simulations. Training presentation can use a fictional display name and an unprefixed subject when the operator records the provider permission and supported format. The authenticated From address always remains the configured sender; a display name does not conceal it. Local capture permits the realistic fictional presentation without contacting an external inbox.
 
 **Emailed links from this launcher work only on this computer.** Open them here. For phones or other computers, configure a reachable public HTTPS origin as described in the email guide. A successful SMTP connection check does not prove a gameplay email was delivered.
 
@@ -68,7 +80,7 @@ Raw email-link GETs, scanners and previews never score. The response page requir
 
 ## Start fresh
 
-Use **Settings → Reset demo** in simulated mode. Its confirmation explains that it clears **all accounts, leagues and progress**, then returns to Create account. Cancel keeps the current game.
+Use **Settings → Reset demo** in simulated or local mailbox capture mode. Its confirmation explains that it clears **all accounts, leagues and progress**, then returns to Create account. Cancel keeps the current game. The separate local mailbox retains its message history; old challenge links stop working after the app reset.
 
 In real-email mode, the organizer whose verified email matches `SMTP_USER` sees **Reset active leagues**. This archives current leagues and cancels unfinished work while retaining accounts, sessions, email history and consumed delivery quotas. Already sent email cannot be recalled. Other participants do not get this control.
 
@@ -90,4 +102,4 @@ Provider secrets belong only in the root `.env`, never `EXPO_PUBLIC_*` variables
 
 The test suite exercises auth, consent, scoring, private data, scheduling, generation contracts, job recovery and provider mocks. Keep real provider keys unset for automated checks; their results do not establish real delivery or model quality. Full Auth0/MongoDB and legacy SMS/voice setup are described in [INTEGRATIONS.md](INTEGRATIONS.md).
 
-See [DEMO.md](DEMO.md) for the presentation, [TECHNICAL_ROADMAP.md](TECHNICAL_ROADMAP.md) for engineering priorities, and [VOICE_SETUP.md](VOICE_SETUP.md) for ElevenLabs audio and optional Twilio text/call setup. Playoffs, deepfake tiebreakers, masked domains, social channels, Rick-rolls and opponent-selected reveal images remain unimplemented. The current game shares two weekly cast slots across Email/Text/Voice, plus the seasonal Spear. Audio authoring and phone enrollment are implemented. External phone delivery needs the documented Twilio setup and explicit enablement; Gmail configuration alone does not enable calls.
+See [DEMO.md](DEMO.md) for the presentation, [TECHNICAL_ROADMAP.md](TECHNICAL_ROADMAP.md) for engineering priorities, and [VOICE_SETUP.md](VOICE_SETUP.md) for ElevenLabs audio and optional Twilio text/call setup. Playoffs, deepfake tiebreakers, masked domains and social channels remain unimplemented. See the submission guide for prank reveal choices and image uploads. The current game shares two weekly cast slots across Email/Text/Voice, plus the seasonal Spear. Audio authoring and phone enrollment are implemented. External phone delivery needs the documented Twilio setup and explicit enablement; Gmail configuration alone does not enable calls.

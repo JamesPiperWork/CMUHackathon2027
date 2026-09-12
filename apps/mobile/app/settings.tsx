@@ -64,7 +64,7 @@ export default function Settings() {
   if (!state) return <Welcome />;
   return <View style={{ maxWidth: 750, width: '100%', alignSelf: 'center' }}>
     <Title>Settings</Title>
-    <Txt muted style={{ fontSize: 13, lineHeight: 21, marginBottom: 18 }}>{state.emailDelivery === 'simulated' ? 'Email delivery: simulated. Check text and voice status below before sending.' : state.emailDelivery === 'smtp-demo' ? 'Email delivery: connected demo. Text and voice each need their own setup.' : 'Real delivery is enabled for connected channels.'}</Txt>
+    <Txt muted style={{ fontSize: 13, lineHeight: 21, marginBottom: 18 }}>{state.emailDelivery === 'mailpit' ? 'Email delivery: local test inbox. Messages do not leave this computer.' : state.emailDelivery === 'simulated' ? 'Email delivery: simulated. Check text and voice status below before sending.' : state.emailDelivery === 'smtp-demo' ? 'Email delivery: connected demo. Text and voice each need their own setup.' : 'Real delivery is enabled for connected channels.'}</Txt>
     {!!state.consent.acceptedAt && Object.values(state.consent.channels).some(Boolean) && <Card style={{ marginBottom: 20 }}><Row style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 15 }}><Txt style={{ fontSize: 15 }}>{state.consent.paused ? 'Incoming messages are paused' : 'Incoming messages are on'}</Txt><Button small loading={busy} variant={state.consent.paused ? 'primary' : 'secondary'} onPress={() => void safely(request('/api/pause', { paused: !state.consent.paused }))}>{state.consent.paused ? 'Resume' : 'Pause messages'}</Button></Row></Card>}
     <ConsentForm onDone={() => router.push('/')} />
     <PhoneEnrollment onDetails={setPhoneDetails} />

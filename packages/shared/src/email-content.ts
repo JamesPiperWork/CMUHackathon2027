@@ -1,7 +1,8 @@
 import type { ApprovedContent } from "./domain";
 
 // Narrative email policy adapted from main's single-story lures (204c824).
-// The sender and teaching facts belong to the server, never to generated JSON.
+// Teaching facts are server-owned. Sender labels are bounded, editable fiction;
+// generated JSON can never supply a sending address or email header.
 const facts: Record<string, { sender: string; explanation: string }> = {
   "ticket-drop": {
     sender: "Juniper Sessions",
@@ -25,13 +26,35 @@ export function emailHasExternalDestination(text: string): boolean {
   return /(?:\b[a-z][a-z\d+.-]*:\/\/|\b(?:mailto|tel|javascript|data):|www\.|[\w.+-]+@[\w.-]+\.[a-z]{2,}|\b(?:[a-z\d](?:[a-z\d-]*[a-z\d])?\.)+[a-z]{2,}\b|\b\d{1,3}(?:\.\d{1,3}){3}\b|(?:\+?\d[\d ()-]{7,}\d)|<[^>]+>|\[[^\]]*\]\(|\{\{[^}]*\}\})/i.test(text);
 }
 
+/** Display labels are editable fiction; they can never become an address or header. */
+export function emailSenderNameValid(name: string): boolean {
+  return name === name.trim() && name.length >= 2 && name.length <= 60
+    && /^[\p{L}\p{M}\p{N} &'’().,-]+$/u.test(name)
+    && !emailHasExternalDestination(name);
+}
+
+export function fictionalEmailSender(authorPrompt: string): string {
+  const names: [RegExp, string][] = [
+    [/\bchess\b/i, "Cedar Chess Circle"],
+    [/\b(?:pottery|ceramics?|clay)\b/i, "Willow Clay Studio"],
+    [/\b(?:baking|sourdough|bread|cooking)\b/i, "Hearthside Baking Club"],
+    [/\b(?:garden\w*|plants?|seeds?|tomatoes|orchids?|flowers?)\b/i, "Fernwood Garden Society"],
+    [/\b(?:trains?|rail\w*)\b/i, "Maple Rail Collective"],
+    [/\b(?:postcards?|stamps?|collect\w*)\b/i, "Juniper Collectors Club"],
+    [/\b(?:music|concerts?|acoustic|guitar|piano)\b/i, "Birchwood Sessions"],
+    [/\b(?:hiking|trails?|walk\w*|outdoor\w*)\b/i, "Alder Trail Club"],
+    [/\b(?:board games?|gaming|tabletop)\b/i, "Cedar Tabletop Circle"],
+  ];
+  return names.find(([pattern]) => pattern.test(authorPrompt))?.[1] ?? "Willow Community Circle";
+}
+
 /** Natural wording can omit the old artificial deadline, but not the false change. */
 export function emailContentConsistent(
   content: ApprovedContent,
   templateId: string,
 ): boolean {
   const fact = facts[templateId];
-  if (!fact || content.senderDisplayName !== fact.sender) return false;
+  if (!fact || !emailSenderNameValid(content.senderDisplayName)) return false;
   if (emailHasExternalDestination(`${content.subject}\n${content.bodyText}`)) return false;
   const body = content.bodyText;
   // Reject wording that negates the very change the server's explanation teaches.
@@ -55,13 +78,13 @@ export function emailTeachingContent(
   ];
   if (/\b(?:ten minutes|ten-minute|10 minutes|immediately|act now|last chance)\b/i.test(`${content.subject}\n${content.bodyText}`))
     cueAnnotations.push("Urgency encourages a response before checking the original plan.");
-  return { ...content, senderDisplayName: fact.sender, cueAnnotations, explanation: fact.explanation };
+  return { ...content, cueAnnotations, explanation: fact.explanation };
 }
 
 /** Free-context drafts have no invented booking/order facts to preserve. */
 export function emailPromptContentValid(content: ApprovedContent): boolean {
   const text = `${content.subject}\n${content.bodyText}`;
-  return content.senderDisplayName === "Fantasy Phishing"
+  return emailSenderNameValid(content.senderDisplayName)
     && !emailHasExternalDestination(text)
     && !/\b(?:credentials?|password|passcode|one.time.code|otp|payment|pay|purchase|credit.card|bank.account|money|wire.transfer|donat(?:e|ion)|download|attachment)\b/i.test(text);
 }
@@ -76,7 +99,6 @@ export function emailPromptTeachingContent(content: ApprovedContent): ApprovedCo
     cueAnnotations.push("Time pressure can encourage a response before checking the request.");
   return {
     ...content,
-    senderDisplayName: "Fantasy Phishing",
     cueAnnotations,
     explanation: "This is a fictional challenge from your consenting league. A message about something you enjoy can still be bait. Verify unexpected requests through a known route before acting; no booking, order, or prior interaction in this email is evidence of a real event.",
   };
