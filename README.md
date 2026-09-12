@@ -1,12 +1,12 @@
 # Fantasy Phishing
 
-A private rivalry for friends who opted in to surprise scam simulations. Design the bait, read the room, and learn the tell. This weekend demo uses eight fictional adults in **The Usual Suspects**, with Alex and Jordan playing one match.
+A private fantasy league for phishing simulations: create bait for a friend, play a weekly head-to-head, and watch the league’s best moments in Weekly Wrapped. Leagues, memberships, private notes, chat, match decisions, and standings persist across restarts.
 
-**The local experience uses explicitly simulated delivery. No real email, SMS, call, or ElevenLabs recording has been sent or tested against a real recipient.** Live adapters require the prerequisites in [INTEGRATIONS.md](INTEGRATIONS.md).
+The included season uses eight synthetic accounts. Local delivery is simulated inside the app; no real email, text, call, or recipient recording is required. Configurable live adapters and their prerequisites are documented in [INTEGRATIONS.md](INTEGRATIONS.md).
 
-## Start
+## Run locally
 
-Use Node.js **22.13 or later** and npm. No Docker, database server, credentials, or paid services are needed.
+Use Node.js **22.13 or later** and npm. No credentials, database server, or paid services are needed for local play.
 
 ```sh
 npm ci
@@ -14,78 +14,91 @@ npm run seed
 npm run dev
 ```
 
-- App: [http://localhost:8081](http://localhost:8081)
-- API health: [http://localhost:3001/health](http://localhost:3001/health)
-- Choose **Alex**, **Jordan**, or **Demo operator** on the welcome screen. Each is a predefined fictional session issued by the server. Alex and Jordan each accept their own invitation and channel consent.
-- Two ordinary browser tabs have independent session storage; use separate profiles or devices for the clearest presentation. Do not duplicate a signed-in tab (some browsers copy its storage). The operator has its own visibly labeled presentation console.
+- [Open the app](http://localhost:8081)
+- [Open the interactive phone preview](http://localhost:3001/mobile-preview)
+- [Check API health](http://localhost:3001/health)
 
-Configuration is optional in demo mode. Copy `.env.example` to `.env` in the repository root when needed. Never put provider keys in `EXPO_PUBLIC_*` settings.
+Choose **Alex** or **Jordan**, or **Choose another player** for Sam, Riley, Casey, Morgan, Jamie, and Taylor. These are server-issued practice accounts. Alex and Jordan complete their contact preferences on first entry; the other synthetic accounts include prepared enrollment. Seeded match history and chat are identified in the app.
 
-For two devices on the same trusted network, set `API_ORIGIN=http://YOUR_LAN_IP:3001`, `APP_ORIGIN=http://YOUR_LAN_IP:8081`, and `EXPO_PUBLIC_API_ORIGIN=http://YOUR_LAN_IP:3001`; restart and open the app URL on each device. Mobile `localhost` refers to the mobile device, not the development computer. The API listens on local network interfaces for this workflow; demo identities and presentation controls are for trusted local use only.
+Each ordinary browser tab keeps a separate session. For two players, open two fresh tabs and sign in separately; duplicating a signed-in tab can copy its session storage.
 
-## Play
+Optional configuration belongs in a root `.env` copied from `.env.example`. Keep provider secrets out of `EXPO_PUBLIC_*` variables. `MATCH_DURATION_MINUTES` defaults to **10080**—one week. Set a shorter value explicitly for a local rehearsal.
 
-1. Enroll both fictional players. Select timezone, hours, interests, and each channel independently. Read the fictional activity card.
-2. Each player can draft one email, SMS, and voice challenge for their opponent. Generate, inspect/edit bounded text, and lock. Content without a Gemini key is labeled as prepared content in the author's view. Opponents cannot inspect private drafts or teaching cues.
-3. Start the match. Missing authored drafts are filled by approved platform scenarios and earn no author bonus. The platform adds three expected fictional messages for each player.
-4. Use the operator console to release the next simulated challenge or all queued challenges. Email, text-message, and call presentations use the approved payload. The call simulator offers a visible transcript because no synthetic recording is configured.
-5. Trust or flag once to commit a decision and reveal the cue. Inspection and ignored calls score zero. Other sessions refresh through Socket.IO, with periodic authoritative refresh as a reconnection fallback.
-6. The server completes after all decisions or at its deadline. The operator can finalize early to demonstrate thresholds or advance simulated time. Recap facts and standings are computed from saved decisions/events.
+## Use the app
 
-Correct trust/flag: **+3**. Incorrect trust/flag: **−3**. Trusting a human-authored phish also gives its author **+2**. Four of six decisions qualify a player: one qualifier wins by forfeit; neither yields no contest; two qualify for highest score, with a draw on equal scores. Win/draw/loss/no contest award 3/1/0/0 league points exactly once.
+1. **Choose a league.** The league picker opens My leagues. Create a league or join with an invite code. A new league waits for a second player before assigning a matchup.
+2. **Choose your bait.** Open Bait, choose a channel and a topic for your friend. The sender chooses interests and can add private notes; the target never selects the sender’s personalization. Notes support Markdown and are saved separately for each author, friend, and league.
+3. **Preview the message.** Generate, review or edit, then save the bait for your match. Gemini is used when configured; otherwise the app labels its prepared content. Recipient exclusions and contact preferences still apply. Easy/standard/hard rules allow five/three/one generation attempts per channel.
+4. **Play the matchup.** Starting a match fills any missing challenge slots and schedules six incoming decisions per player across enabled channels. Compare incoming claims with your match context, inspect them, and choose Trust or Flag. Reveals explain the relevant cues.
+5. **Follow the season.** The League tab shows the leaderboard, with links to weekly matches, chat, and Wrapped. Invitations and rules are tucked into League settings. The organizer can start the next week once all current matches are final. Channel rules lock once anyone creates bait.
+6. **Watch Weekly Wrapped.** Completed matchups produce a short animated story from saved attack payloads, decisions, scores, and match-period chat. Play, pause, seek, and replay individual moments. Supported desktop browsers can render and download a portrait **WebM video**; keep the tab open during rendering. This is a visual recap, not a recording of real messages or calls. Seeded episodes remain labeled synthetic.
 
-See [DEMO.md](DEMO.md) for the timed presentation and deterministic fallback.
+Correct decisions earn **+3**; incorrect decisions earn **−3**. Trusting a human-authored phish also gives its author **+2**. Four of six decisions qualify a player: one qualifier wins by forfeit, neither means no contest, and two qualify for the highest score with draws on equal totals. A win/draw/loss gives 3/1/0 league points, applied once.
 
-## Commands
+## Mobile from your computer
 
-```sh
-npm run seed          # create fictional state if absent; preserve existing state
-npm run reset:demo    # reset fictional data; STOP the dev server first
-npm run dev           # API + Expo web preview
-npm run typecheck
-npm run lint
-npm test
-npm run build         # Node API bundle + Expo static web export
-```
+The quickest option is the [phone preview](http://localhost:3001/mobile-preview), also available under Account & preferences. It puts the same interactive React Native web app inside a phone frame. Sign in, draft, chat, and make decisions with your mouse and keyboard; it uses the same API and saved data. **This preview is a phone-sized web view, not a native iOS binary.**
 
-While the server is running, use the authenticated demo operator **Reset** control instead of the CLI. JSON storage supports one process only.
+For native iOS on a Mac:
 
-Build output is `apps/api/dist/index.js` and `apps/mobile/dist/`. `npm run start -w @fp/api` runs the built API. The API bundle includes the shared domain package; it does not require a TypeScript loader. The Expo static export needs a web host with SPA fallback for nested routes. This repository does not deploy publicly.
-
-## Native development
-
-The Expo app uses standard React Native components and Router. Dependency versions follow Expo SDK 57's compatibility matrix (React 19.2.3, React Native 0.86.3). [Official SDK table](https://docs.expo.dev/versions/latest/).
+1. Install full Xcode, select its command-line tools, and install an iOS Simulator runtime in Xcode settings, following the [official Expo iOS Simulator guide](https://docs.expo.dev/workflow/ios-simulator/).
+2. Keep the API running, then build and launch the app:
 
 ```sh
 cd apps/mobile
 npx expo run:ios
-# or, with Android SDK + emulator/device configured:
-npx expo run:android
 ```
 
-These commands require Xcode/macOS or the Android SDK and generate a development build. They were not run in this implementation environment. Auth0 native integration requires that build; it cannot run in Expo Go. Web uses the Auth0 SPA SDK, while external response links use the API's Auth0 authorization-code flow. [Auth0 Expo guide](https://auth0.com/docs/quickstart/native/react-native-expo).
+The Mac used for this handoff has only Xcode Command Line Tools; `simctl` is unavailable, so a native simulator build has not been run. Android requires the Android SDK and an emulator or connected device, then `npx expo run:android` from the same directory. Auth0’s native integration requires a development build rather than Expo Go.
 
-## Structure and guarantees
+For a physical device on the same trusted network, set `API_ORIGIN=http://YOUR_LAN_IP:3001`, `APP_ORIGIN=http://YOUR_LAN_IP:8081`, and `EXPO_PUBLIC_API_ORIGIN=http://YOUR_LAN_IP:3001`, then restart. A phone’s `localhost` refers to the phone. The practice account selector is intended for trusted local use.
+
+## Feature scope
+
+| Feature | Current implementation |
+| --- | --- |
+| Private leagues and head-to-head | Create/join, persistent memberships, weekly schedules, multiple playable pairs, next-week progression |
+| Personalized challenges | Sender-owned interests and private Markdown notes; target controls consent and exclusions |
+| AI drafting | Gemini adapter with validated output and labeled prepared fallback |
+| Standings and league chat | Records, league points, rank movement, member-only persistent messages |
+| Weekly Wrapped | Event-based animated episodes and supported desktop WebM export |
+| Channels and customization | Email, text, and voice simulations; difficulty, channel rules, family-friendly mode |
+| Phished reveal | Decision and teaching-cue reveal; Rick-roll and opponent-selected images are not implemented |
+| Spear Email chip | Not implemented |
+| Crowdsourced playoffs | Drafting/voting and playoff progression are not implemented |
+| Tiebreaker minigames | Identify the Phish and deepfake swiping are not implemented; equal scores currently draw |
+| Social and masked domains | Social simulations and custom masked sending domains are not implemented; response links are application-owned |
+
+This is a functional local app foundation, not a production deployment. Live enrollment remains invitation-only: provision real Auth0 membership and verified contact evidence separately. The synthetic account selector is disabled in live mode.
+
+## Development and persistence
+
+```sh
+npm run seed          # create synthetic state if absent; preserve existing state
+npm run reset:demo    # reset local synthetic data; stop the dev server first
+npm run dev           # API + Expo web
+npm run typecheck
+npm run lint
+npm test
+npm run build         # bundled Node API + Expo static web export
+```
+
+See [DEMO.md](DEMO.md) for a presentation using the product and its synthetic season. An optional local operator shortcut can accelerate a rehearsal; ordinary play does not depend on it.
 
 ```text
-apps/mobile/       Expo Router screens, reusable RN design system, session client
-apps/api/          Fastify, authenticated Socket.IO, durable job loop, provider adapters
-packages/shared/   Zod schemas, reviewed fixtures, domain types, scoring and recap rules
+apps/mobile/       Expo Router screens, shared React Native UI, session client
+apps/api/          Fastify, authenticated Socket.IO, persistent leagues and jobs
+packages/shared/   Domain types, validation, synthetic fixtures, scoring rules
 ```
 
-- File storage serializes changes, writes a temporary file, then atomically renames it. Saved sessions, decisions, scores, jobs, and finalization survive restarts. It supports one demo process, not distributed execution.
-- With `MONGODB_URI`, the API uses MongoDB transactions with a state revision and separate unique decision, score-event, and callback indexes. MongoDB must support transactions (replica set, including a local single-node replica set). The single aggregate document is deliberately limited to this small league; it is not a season-scale data model.
-- Decisions, score events, totals, and finalization commit together. Duplicate decisions return the original result. Notifications follow commits; no whole database documents or unrevealed answers are broadcast.
-- Durable jobs have leases, attempt counts, and idempotency keys. A potentially accepted external submission becomes **unknown** and requires reconciliation. It is never blindly retried. Pausing cancels pending deliveries; a carrier-accepted send may not be retractable.
-- Opaque challenge links preview without scoring on GET. A POST requires the intended player's authentication. Cookie-based landing-page responses use CSRF protection. No passwords, payment forms, real OTPs, secret collection, arbitrary destinations, redirects, or recipient recordings exist.
-- Live sending requires Auth0, MongoDB, verified participant contacts, adult enrollment, active channel consent, recipient-local hours and quota, public HTTPS, authenticated senders, registrations, and operator-recorded permission for the exact format. Recorded configuration is not independent verification of approval.
+JSON storage writes atomically and supports **one API process**. Do not run a CLI reset concurrently with the JSON-backed server. MongoDB storage uses transactions and requires a replica set. Its aggregate-document approach suits small leagues, not a large production service.
 
-## Limits and verification
+Decisions, score events, and finalization commit together; duplicate submissions return the saved result. Socket notifications follow commits. Private notes and unrevealed answers stay scoped to their owner. Pausing cancels pending deliveries; a message already accepted by a real carrier may not be retractable. Challenge GET links never score; decisions require the intended recipient’s authentication and CSRF protection for cookie-based responses.
 
-This is a local hackathon demo, not a production-ready service. It intentionally has no public matchmaking, payments, chat, playoffs, social integrations, powerups, scraping, or voice cloning. Live enrollment is invitation-only: operators provision actual membership/Auth0 subject and independently verified contact evidence in MongoDB; the demo selector never creates a live identity or verification.
+Build output is `apps/api/dist/index.js` and `apps/mobile/dist/`. Start the built API with `npm run start -w @fp/api`; the static web export needs a host with SPA fallback. Nothing is published by these commands.
 
-The default real quota permits one challenge per channel per recipient local day, while the six-decision demonstration explicitly accelerates two per channel in simulation. Live jobs are scheduled across recipient-local contact days; set `MATCH_DURATION_MINUTES=4320` (too-short deadlines are rejected). Unresolved/failed delivery leaves the match incomplete for operator resolution. SMTP submission acceptance does not establish inbox receipt. There is no provider-specific SMTP receipt integration or automated reconciliation console.
+## Integrations and verification
 
-Automated tests cover scoring, thresholds, fixture review, authorization/privacy, persistence, duplicate decisions/finalization, neutral GET previews, pause/worker recovery, sockets, malformed/refused generation, provider callbacks, and fail-closed readiness. See `npm test` for individual cases. Web and iOS/Android JavaScript exports were checked; native binary compilation was not. Native device builds, a real MongoDB replica set, real Auth0 tenants, real Gemini/ElevenLabs responses, and actual carrier/email delivery require environments and credentials not supplied here.
+Live sending requires verified contacts, consent, recipient-local contact windows and quota, public HTTPS, Auth0, MongoDB, and the provider-specific setup in [INTEGRATIONS.md](INTEGRATIONS.md). The default quota allows one challenge per channel per local day; live scheduling spans eligible days and rejects deadlines that are too short. Failed or unresolved delivery can leave a match incomplete. SMTP acceptance does not prove inbox receipt, and external submissions with uncertain status are not blindly retried.
 
-Verified during handoff: clean `npm ci`, seed/reset, typecheck, ESLint, 32 passing tests, production API startup, web export, two independent browser sessions completing a 20–12 match, a 390px layout with no horizontal overflow or overlapping activity sections, and a built-server restart preserving the result. `npm run demo:finish` was also rehearsed against an isolated fictional server. npm reports 13 moderate transitive advisories in the Expo dependency tree; no high/critical advisories remained after updating the SMTP dependency. Do not apply npm's suggested downgrade to an incompatible Expo major.
+Automated checks cover scoring, authorization, private profiles, league isolation and progression, persistence, sockets, job recovery, generation fallback, and provider callbacks. Run the commands above for current results. Native binary builds and real Auth0, MongoDB, Gemini, ElevenLabs, carrier, or email delivery still require environments and credentials not supplied here.

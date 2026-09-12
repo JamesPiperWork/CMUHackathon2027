@@ -1,224 +1,40 @@
 import React, { useState } from "react";
-import { View } from "react-native";
-import { interests, type Channel, type Interest } from "@fp/shared";
+import { Pressable, View } from "react-native";
+import { type Channel } from "@fp/shared";
 import { useSession, safely } from "./session";
-import {
-  Badge,
-  Button,
-  C,
-  Card,
-  Divider,
-  Field,
-  Label,
-  Row,
-  Toggle,
-  Txt,
-} from "./ui";
-const zones = [
-  "America/New_York",
-  "America/Chicago",
-  "America/Denver",
-  "America/Los_Angeles",
-  "America/Anchorage",
-  "Pacific/Honolulu",
-];
+import { Button, C, Card, Field, Row, Toggle, Txt } from "./ui";
+const zones = ["America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles", "America/Anchorage", "Pacific/Honolulu"];
 export function ConsentForm({ onDone }: { onDone?: () => void }) {
   const { state, request, busy } = useSession();
-  const [name, setName] = useState(state?.me.name || ""),
-    [adult, setAdult] = useState(state?.consent.adult || false),
-    [channels, setChannels] = useState<Record<Channel, boolean>>(
-      state?.consent.channels || { email: false, sms: false, voice: false },
-    ),
-    [selected, setSelected] = useState<Interest[]>(state?.me.interests || []),
-    [timezone, setTimezone] = useState(
-      state?.consent.timezone || "America/New_York",
-    ),
-    [start, setStart] = useState(String(state?.consent.startHour ?? 10)),
-    [end, setEnd] = useState(String(state?.consent.endHour ?? 20)),
-    [family, setFamily] = useState(state?.consent.familyFriendly ?? true),
-    [excluded, setExcluded] = useState(
-      (state?.consent.excludedThemes || []).join(", "),
-    ),
-    [timezoneConfirmed, setTimezoneConfirmed] = useState(
-      Boolean(state?.consent.acceptedAt),
-    );
-  const valid =
-    adult &&
-    timezoneConfirmed &&
-    name.trim().length >= 2 &&
-    selected.length > 0 &&
-    Number.isInteger(Number(start)) &&
-    Number.isInteger(Number(end)) &&
-    Number(start) >= 0 &&
-    Number(end) <= 24 &&
-    Number(start) < Number(end);
-  return (
-    <View style={{ gap: 20 }}>
-      <Card>
-        <Label color={C.teal}>An invitation to harmless mischief</Label>
-        <Txt style={{ fontSize: 20, fontWeight: "700", marginTop: 10 }}>
-          Welcome to The Usual Suspects.
-        </Txt>
-        <Txt muted style={{ lineHeight: 22, marginTop: 12 }}>
-          Your friends will send fictional deceptive challenges mixed with
-          expected messages. Timing and answers stay a surprise. Voice
-          challenges use a synthetic stock voice. This private league is for
-          adults only.
-        </Txt>
-        <Divider />
-        <Field
-          label="Display name"
-          value={name}
-          onChangeText={setName}
-          maxLength={24}
-        />
-        <View style={{ gap: 11, marginTop: 20 }}>
-          <Label>Your approved interests</Label>
-          <Row style={{ flexWrap: "wrap" }}>
-            {interests.map((item) => (
-              <Button
-                key={item}
-                small
-                variant={selected.includes(item) ? "primary" : "secondary"}
-                onPress={() =>
-                  setSelected((old) =>
-                    old.includes(item)
-                      ? old.filter((i) => i !== item)
-                      : [...old, item],
-                  )
-                }
-              >
-                {item}
-              </Button>
-            ))}
-          </Row>
-          <Txt muted style={{ fontSize: 11 }}>
-            Friends can personalize challenges using only these interests.
-          </Txt>
-        </View>
-        <View style={{ marginTop: 20 }}>
-          <Field
-            label="Themes to exclude (optional)"
-            value={excluded}
-            onChangeText={setExcluded}
-            maxLength={120}
-            placeholder="For example: deliveries"
-            help="Comma-separated themes. Sensitive and personal topics are always off limits."
-          />
-        </View>
-      </Card>
-      <Card>
-        <Label>Choose your channels</Label>
-        {(["email", "sms", "voice"] as Channel[]).map((channel) => (
-          <Toggle
-            key={channel}
-            label={
-              channel === "sms"
-                ? "SMS"
-                : channel === "voice"
-                  ? "Synthetic voice calls"
-                  : "Email"
-            }
-            detail={
-              state?.mode === "demo"
-                ? "Simulated in the game. No real contact."
-                : "Live delivery requires verified contact ownership and provider readiness."
-            }
-            value={channels[channel]}
-            onChange={(value) => setChannels({ ...channels, [channel]: value })}
-          />
-        ))}
-        <Divider />
-        <Label>Your contact window</Label>
-        <Row style={{ flexWrap: "wrap", marginTop: 12 }}>
-          {zones.map((zone) => (
-            <Button
-              small
-              key={zone}
-              variant={timezone === zone ? "primary" : "secondary"}
-              onPress={() => {
-                setTimezone(zone);
-                setTimezoneConfirmed(true);
-              }}
-            >
-              {zone.split("/")[1].replace("_", " ")}
-            </Button>
-          ))}
-        </Row>
-        <Toggle
-          label={`Confirm timezone: ${timezone.replace("_", " ")}`}
-          value={timezoneConfirmed}
-          onChange={setTimezoneConfirmed}
-        />
-        <Row style={{ alignItems: "flex-start" }}>
-          <View style={{ flex: 1 }}>
-            <Field
-              label="From (24h)"
-              value={start}
-              onChangeText={setStart}
-              maxLength={2}
-            />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Field
-              label="Until (24h)"
-              value={end}
-              onChangeText={setEnd}
-              maxLength={2}
-            />
-          </View>
-        </Row>
-        <Txt muted style={{ fontSize: 11, lineHeight: 18, marginTop: 10 }}>
-          Default: 10:00–20:00. At most one challenge per channel per day. Demo
-          presenters can explicitly advance simulated time.
-        </Txt>
-        <Divider />
-        <Toggle
-          label="Keep the jokes family friendly"
-          detail="Same adult-only game; gentler reveal copy."
-          value={family}
-          onChange={setFamily}
-        />
-        <Toggle
-          label="I’m 18 or older and I accept this private invitation"
-          detail="I understand enabled channels may receive surprise deceptive simulations. I can pause or withdraw at any time."
-          value={adult}
-          onChange={setAdult}
-        />
-      </Card>
-      <Button
-        disabled={!valid}
-        loading={busy}
-        icon="check"
-        onPress={() =>
-          void safely(
-            request("/api/consent", {
-              adult,
-              displayName: name,
-              channels,
-              timezone,
-              startHour: Number(start),
-              endHour: Number(end),
-              familyFriendly: family,
-              interests: selected,
-              excludedThemes: excluded
-                .split(",")
-                .map((t) => t.trim())
-                .filter(Boolean),
-            }).then(() => onDone?.()),
-          )
-        }
-      >
-        {state?.consent.acceptedAt
-          ? "Save preferences"
-          : "Accept invitation & join the league"}
-      </Button>
-      {!valid && (
-        <Badge color={C.gold}>
-          Choose interests, confirm timezone, and accept the adult invitation to
-          continue.
-        </Badge>
-      )}
-    </View>
-  );
+  const [name, setName] = useState(state?.me.name || '');
+  const [adult, setAdult] = useState(state?.consent.adult || false);
+  const [channels, setChannels] = useState<Record<Channel, boolean>>(state?.consent.channels || { email: false, sms: false, voice: false });
+  const [timezone, setTimezone] = useState(state?.consent.timezone || 'America/New_York');
+  const [start, setStart] = useState(String(state?.consent.startHour ?? 10));
+  const [end, setEnd] = useState(String(state?.consent.endHour ?? 20));
+  const [family, setFamily] = useState(state?.consent.familyFriendly ?? true);
+  const [excluded, setExcluded] = useState((state?.consent.excludedThemes || []).join(', '));
+  const [more, setMore] = useState(false);
+  const hoursValid = Number.isInteger(Number(start)) && Number.isInteger(Number(end)) && Number(start) >= 0 && Number(end) <= 24 && Number(start) < Number(end);
+  const hasChannel = Object.values(channels).some(Boolean);
+  const valid = adult && name.trim().length >= 2 && hoursValid && (hasChannel || Boolean(state?.consent.acceptedAt));
+  const save = () => request('/api/consent', { adult, displayName: name, channels, timezone, startHour: Number(start), endHour: Number(end), familyFriendly: family, excludedThemes: excluded.split(',').map((theme) => theme.trim()).filter(Boolean) }).then(() => onDone?.());
+  return <Card style={{ gap: 18 }}>
+    <View style={{ gap: 8 }}><Txt style={{ fontSize: 21, fontWeight: '700' }}>{state?.consent.acceptedAt ? 'Contact preferences' : 'Choose how to play'}</Txt><Txt muted style={{ fontSize: 14, lineHeight: 22 }}>Friends send fake and expected messages. Your job is to spot the bait. You can pause at any time.</Txt></View>
+    <View>{(['email', 'sms', 'voice'] as Channel[]).map((channel) => <Toggle key={channel} label={channel === 'sms' ? 'Text messages' : channel === 'voice' ? 'Voice calls' : 'Email'} value={channels[channel]} onChange={(value) => setChannels({ ...channels, [channel]: value })} />)}</View>
+    <Txt muted style={{ fontSize: 12, lineHeight: 20 }}>{state?.mode === 'demo' ? 'These are in-app simulations. No real messages or calls are sent. Voice uses transcripts or synthetic audio.' : 'Enabled channels use verified contact details when delivery is connected.'}</Txt>
+    <View style={{ borderTopWidth: 1, borderTopColor: C.border, paddingTop: 16, gap: 8 }}><Txt muted style={{ fontSize: 13, lineHeight: 21 }}>Contact hours: {start}:00–{end}:00, {timezone.split('/').pop()?.replaceAll('_', ' ')}.</Txt><Toggle label="I’m 18 or older and agree to play" detail="I agree to receive surprise phishing simulations on my chosen channels during these hours." value={adult} onChange={setAdult} /></View>
+    <View style={{ display: more ? 'none' : 'flex' }}><Button disabled={!valid} loading={busy} onPress={() => void safely(save())}>{state?.consent.acceptedAt ? 'Save preferences' : 'Join the league'}</Button></View>
+    {!hasChannel && !state?.consent.acceptedAt && <Txt muted style={{ fontSize: 12 }}>Choose at least one channel to join.</Txt>}
+    <Pressable accessibilityRole="button" accessibilityState={{ expanded: more }} onPress={() => setMore(!more)} style={{ paddingVertical: 9 }}><Txt style={{ color: C.teal, fontSize: 14 }}>{more ? 'Fewer preferences −' : 'More preferences +'}</Txt></Pressable>
+    {more && <View style={{ gap: 20, borderTopWidth: 1, borderTopColor: C.border, paddingTop: 19 }}>
+      <Field label="Display name" value={name} onChangeText={setName} maxLength={24} />
+      <View style={{ gap: 10 }}><Txt style={{ fontSize: 14, fontWeight: '600' }}>Time zone</Txt><Row style={{ flexWrap: 'wrap', gap: 8 }}>{zones.map((zone) => <Button small key={zone} variant={timezone === zone ? 'primary' : 'secondary'} onPress={() => setTimezone(zone)}>{zone.split('/')[1].replaceAll('_', ' ')}</Button>)}</Row></View>
+      <Row style={{ alignItems: 'flex-start' }}><View style={{ flex: 1 }}><Field label="From (24h)" value={start} onChangeText={setStart} maxLength={2} /></View><View style={{ flex: 1 }}><Field label="Until (24h)" value={end} onChangeText={setEnd} maxLength={2} /></View></Row>
+      {!hoursValid && <Txt style={{ color: C.coral, fontSize: 13 }}>Choose valid hours, with the end later than the start.</Txt>}
+      <Field label="Topics to avoid" value={excluded} onChangeText={setExcluded} maxLength={120} placeholder="For example: deliveries" help="Optional. Separate topics with commas." />
+      <Toggle label="Family-friendly themes" value={family} onChange={setFamily} />
+      <Button disabled={!valid} loading={busy} onPress={() => void safely(save())}>Save preferences</Button>
+    </View>}
+  </Card>;
 }

@@ -4,6 +4,8 @@ import {
   type Channel,
   type Database,
   type Profile,
+  type GamePool,
+  scoreDecision,
 } from "./domain";
 export const templateOptions = [
   {
@@ -201,7 +203,7 @@ export function createSeed(now = Date.now()): Database {
     draws: points[i] % 3,
   }));
   const ranked = [...profiles].sort((a, b) => b.leaguePoints - a.leaguePoints);
-  return {
+  const db: Database = {
     version: 1,
     revision: 0,
     clockOffset: 0,
@@ -246,11 +248,12 @@ export function createSeed(now = Date.now()): Database {
     })),
     match: {
       id: "match-week-04",
+      week: 4,
       leagueId: "usual-suspects",
       players: ["alex", "jordan"],
       state: "drafting",
       seed: 20270912,
-      deadline: now + 24 * 60 * 60 * 1000,
+      deadline: now + 7 * 24 * 60 * 60 * 1000,
       startedAt: null,
       completedAt: null,
       scores: { alex: 0, jordan: 0 },
@@ -266,5 +269,67 @@ export function createSeed(now = Date.now()): Database {
     attempts: [],
     sessions: [],
     callbackIds: [],
+  };
+  initializeLeagues(db, now);
+  return db;
+}
+
+/** Adds product data to older local saves without replacing a played match. */
+export function initializeLeagues(db: Database, now = Date.now()) {
+  if (db.leagues) return;
+  db.match.week ??= 4;
+  db.leagues = [{
+    id: "usual-suspects", name: "The Usual Suspects", inviteCode: "USUAL27",
+    commissionerId: "alex", currentWeek: 4, season: new Date(now).getFullYear(),
+    settings: { difficulty: "standard", familyFriendly: true, channels: { email: true, sms: true, voice: true } },
+    createdAt: now - 28 * 86400000,
+  }];
+  db.matchPools = [];
+  db.chat = [];
+  db.scouting = [
+    { authorId: "alex", targetId: "jordan", leagueId: "usual-suspects", interests: [...interests], markdown: "# Jordan\n- Always organizes Friday concert plans.\n- Brings a new board game to our monthly game night.", updatedAt: now - 5 * 86400000 },
+    { authorId: "jordan", targetId: "alex", leagueId: "usual-suspects", interests: [...interests], markdown: "# Alex\n- Loves a Saturday morning walk.\n- Keeps talking about the next board-game expansion.", updatedAt: now - 5 * 86400000 },
+  ];
+  db.userSelections = {};
+  const history = [
+    { players: ["alex", "riley"], author: "alex", target: "riley", text: "I saw Mooncrate and completely forgot to check the order number. Rematch next week?" },
+    { players: ["jordan", "casey"], author: "jordan", target: "casey", text: "The backstage upgrade got me. I was already planning who to take." },
+  ];
+  for (const [index, entry] of history.entries()) {
+    const completedAt = now - (3 - index) * 86400000;
+    const pool = blankGame(`week-03-${entry.players.join("-")}`, "usual-suspects", entry.players, 3, completedAt - 7 * 86400000, true);
+    Object.assign(pool.match, { state: "completed", completedAt, startedAt: completedAt - 7 * 86400000, deadline: completedAt, winnerId: entry.author, result: "win", standingsApplied: true });
+    for (const recipientId of entry.players) {
+      const authorId = entry.players.find((id) => id !== recipientId)!;
+      for (let i = 0; i < 6; i++) {
+        const channel = (["email", "sms", "voice"] as const)[i % 3];
+        const isPhishing = i < 3;
+        const templateId = channel === "email" ? "parcel-update" : channel === "sms" ? "ticket-drop" : "game-night";
+        const id = `${pool.match.id}-${recipientId}-${i}`;
+        const content = fixtureContent(channel, templateId, isPhishing);
+        pool.scenarios.push({ id, matchId: pool.match.id, recipientId, authorId: isPhishing ? authorId : null, channel, templateId, interest: interests[i % 3], content, isPhishing, locked: true, source: "fixture", model: "synthetic-season-history", promptVersion: "v1", generationAttempts: 1, generationStatus: "complete", tokenHash: "", tokenExpiresAt: completedAt, releasedAt: completedAt - (6-i) * 3600000, deliveryStatus: "simulated", order: i });
+        const mistake = recipientId === entry.target && i === index;
+        const choice = isPhishing && !mistake ? "flag" as const : "trust" as const;
+        const scored = scoreDecision(isPhishing, choice, isPhishing);
+        const decision = { id: `${id}-decision`, scenarioId: id, recipientId, choice, ...scored, createdAt: completedAt - (6-i) * 3600000 + 45000 };
+        pool.decisions.push(decision);
+        pool.match.scores[recipientId] += scored.defenderPoints;
+        if (scored.authorPoints) pool.match.scores[authorId] += scored.authorPoints;
+        pool.scoreEvents.push({ id: `${id}-defense`, sourceId: decision.id, userId: recipientId, type: "defense", points: scored.defenderPoints });
+        if (scored.authorPoints) pool.scoreEvents.push({ id: `${id}-attack`, sourceId: decision.id, userId: authorId, type: "author", points: scored.authorPoints });
+      }
+    }
+    db.matchPools.push(pool);
+    db.chat.push({ id: `chat-week3-${index}`, leagueId: "usual-suspects", userId: entry.target, body: entry.text, createdAt: completedAt + 120000, synthetic: true });
+    db.chat.push({ id: `chat-week3-reply-${index}`, leagueId: "usual-suspects", userId: entry.author, body: index === 0 ? "You beat me on the Trail Club call though. See you in the playoffs." : "Next week I am checking every booking code twice.", createdAt: completedAt + 180000, synthetic: true });
+  }
+  for (const pair of [["sam", "riley"], ["casey", "morgan"], ["jamie", "taylor"]])
+    db.matchPools.push(blankGame(`week-04-${pair.join("-")}`, "usual-suspects", pair, 4, now, true));
+}
+
+export function blankGame(id: string, leagueId: string, players: string[], week: number, now: number, synthetic = false): GamePool {
+  return {
+    match: { id, leagueId, players, week, synthetic, state: "drafting", seed: 20270912 + week, deadline: now + 7 * 86400000, startedAt: null, completedAt: null, scores: Object.fromEntries(players.map((p) => [p, 0])), result: null, winnerId: null, standingsApplied: false, standingsBefore: {} },
+    scenarios: [], decisions: [], scoreEvents: [], jobs: [], attempts: [],
   };
 }

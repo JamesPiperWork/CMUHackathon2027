@@ -159,13 +159,20 @@ export function registerLiveAuth(
         now = service.now(db),
         hash = createHash("sha256").update(challenge).digest("hex");
       if (
-        !db.scenarios.some(
-          (s) =>
-            s.tokenHash === hash &&
-            s.tokenExpiresAt > now &&
-            s.releasedAt !== null,
-        ) ||
-        db.match.state !== "active"
+        ![
+          { match: db.match, scenarios: db.scenarios },
+          ...(db.matchPools ?? []),
+        ].some(
+          (pool) =>
+            pool.match.state === "active" &&
+            pool.scenarios.some(
+              (s) =>
+                s.tokenHash === hash &&
+                s.tokenExpiresAt > now &&
+                s.releasedAt !== null &&
+                s.deliveryStatus !== "cancelled",
+            ),
+        )
       )
         return reply
           .code(410)
@@ -232,19 +239,15 @@ export function registerLiveAuth(
         !equal(transaction.state, request.query.state) ||
         !pending.has(transaction.state)
       )
-        return reply
-          .code(403)
-          .send({
-            error: "Login state expired or did not match this browser.",
-          });
+        return reply.code(403).send({
+          error: "Login state expired or did not match this browser.",
+        });
       pending.delete(transaction.state);
       if (!request.query.code || request.query.error)
-        return reply
-          .code(400)
-          .send({
-            error:
-              "Login was cancelled or rejected. Open your challenge again to retry.",
-          });
+        return reply.code(400).send({
+          error:
+            "Login was cancelled or rejected. Open your challenge again to retry.",
+        });
       try {
         const auth = authConfig();
         const response = await fetch(`${auth.issuer}oauth/token`, {
@@ -290,12 +293,10 @@ export function registerLiveAuth(
           })
           .redirect(`/r/${transaction.challenge}`);
       } catch {
-        return reply
-          .code(403)
-          .send({
-            error:
-              "Sign-in failed or this identity is not an enrolled league member. Open your challenge again to retry.",
-          });
+        return reply.code(403).send({
+          error:
+            "Sign-in failed or this identity is not an enrolled league member. Open your challenge again to retry.",
+        });
       }
     },
   );

@@ -143,6 +143,8 @@ export interface DeliveryAttempt {
 }
 export interface Match {
   id: string;
+  week?: number;
+  synthetic?: boolean;
   leagueId: string;
   players: string[];
   state: MatchState;
@@ -164,6 +166,87 @@ export interface Session {
   role: "player" | "operator";
   expiresAt: number;
   csrf: string;
+  selectedLeagueId?: string;
+  selectedMatchId?: string;
+}
+export interface ScoutingProfile {
+  authorId: string;
+  targetId: string;
+  leagueId: string;
+  interests: Interest[];
+  markdown: string;
+  updatedAt: number;
+}
+export interface LeagueSettings {
+  difficulty: "rookie" | "standard" | "expert";
+  familyFriendly: boolean;
+  channels: Record<Channel, boolean>;
+}
+export interface LeagueRecord {
+  id: string;
+  name: string;
+  inviteCode: string;
+  commissionerId: string;
+  currentWeek: number;
+  season: number;
+  settings: LeagueSettings;
+  createdAt: number;
+  standings?: Record<string, { leaguePoints: number; wins: number; losses: number; draws: number }>;
+}
+export interface LeagueSummary extends LeagueRecord {
+  memberCount: number;
+  myMatchId: string | null;
+}
+export interface LeagueChatMessage {
+  id: string;
+  leagueId: string;
+  userId: string;
+  body: string;
+  createdAt: number;
+  synthetic: boolean;
+  author: Profile;
+}
+export interface LeagueMatchup {
+  id: string;
+  leagueId: string;
+  week: number;
+  players: Profile[];
+  state: MatchState;
+  deadline: number;
+  scores: Record<string, number>;
+  winnerId: string | null;
+  result: Match["result"];
+  synthetic: boolean;
+  playable: boolean;
+}
+export interface MatchStory {
+  id: string;
+  leagueName: string;
+  week: number;
+  players: Profile[];
+  scores: Record<string, number>;
+  winnerId: string | null;
+  completedAt: number;
+  synthetic: boolean;
+  highlights: {
+    id: string;
+    kind: "attack" | "defense" | "chat";
+    actorName: string;
+    targetName?: string;
+    text: string;
+    detail?: string;
+    channel?: Channel;
+    points?: number;
+    createdAt: number;
+  }[];
+}
+export interface GamePool {
+  match: Match;
+  scenarios: Scenario[];
+  decisions: Decision[];
+  scoreEvents: ScoreEvent[];
+  jobs: Job[];
+  attempts: DeliveryAttempt[];
 }
 export interface Database {
   version: 1;
@@ -178,7 +261,14 @@ export interface Database {
   jobs: Job[];
   attempts: DeliveryAttempt[];
   sessions: Session[];
+  /** Read-only aggregate supplied to a scoped match view; never persisted. */
+  allAttempts?: DeliveryAttempt[];
   callbackIds: string[];
+  leagues?: LeagueRecord[];
+  matchPools?: GamePool[];
+  chat?: Omit<LeagueChatMessage, "author">[];
+  scouting?: ScoutingProfile[];
+  userSelections?: Record<string, { leagueId: string; matchId?: string }>;
 }
 export interface ScenarioPublic {
   id: string;
@@ -268,6 +358,8 @@ export interface PlayerState {
     voice: string;
   };
   role: "player" | "operator";
+  selectedLeagueId: string;
+  leagues: LeagueSummary[];
 }
 export interface GenerateRequest {
   recipientMemberId: string;
@@ -375,6 +467,7 @@ export interface GenerationInput {
   interest: Interest;
   templateId: string;
   fixture: ApprovedContent;
+  scouting?: { interest: Interest; markdown: string };
 }
 export interface GenerationResult {
   content: ApprovedContent;

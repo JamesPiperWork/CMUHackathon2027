@@ -1,348 +1,59 @@
-import React from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  View,
-  useWindowDimensions,
-} from "react-native";
+import React, { useCallback, useEffect, useRef } from "react";
+import { ActivityIndicator, Pressable, ScrollView, View, useWindowDimensions } from "react-native";
 import { Slot, router, usePathname } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { SessionProvider, useSession, safely } from "../src/session";
-import {
-  Avatar,
-  Button,
-  C,
-  Hook,
-  Icon,
-  Label,
-  Row,
-  Txt,
-  type IconName,
-} from "../src/ui";
-const nav: [string, string, IconName][] = [
-  ["/", "Matchup", "home"],
-  ["/draft", "Draft a challenge", "draft"],
-  ["/activity", "Activity", "activity"],
-  ["/league", "The league", "league"],
+import { Avatar, Button, C, Hook, Icon, Row, Txt, type IconName } from "../src/ui";
+import { ScreenScrollContext } from "../src/screen-scroll";
+
+const tabs: [string, string, IconName][] = [
+  ["/", "Home", "home"], ["/draft", "Bait", "hook"],
+  ["/activity", "Inbox", "activity"], ["/league", "League", "league"],
 ];
 function Frame() {
-  const { width } = useWindowDimensions();
-  const wide = width >= 950;
-  const compact = width < 540;
+  const wide = useWindowDimensions().width >= 950;
   const path = usePathname();
-  const { state, loading, error, connected, mode, clearError, refresh } =
-    useSession();
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
-      <StatusBar style="light" />
-      <View
-        style={{
-          height: 35,
-          backgroundColor: "#243B3D",
-          alignItems: "center",
-          justifyContent: "center",
-          paddingHorizontal: 12,
-        }}
-      >
-        <Txt
-          style={{
-            color: C.teal,
-            fontSize: 10,
-            fontWeight: "700",
-            letterSpacing: 0.65,
-          }}
-        >
-          {mode === "demo"
-            ? "SIMULATED DELIVERY  ·  FICTIONAL PLAYERS. REAL RIVALRY."
-            : "PRIVATE OPT-IN LEAGUE  ·  LIVE CHANNEL READINESS APPLIES"}
-        </Txt>
-      </View>
-      <View
-        style={{
-          height: 77,
-          paddingHorizontal: wide ? 36 : 20,
-          borderBottomWidth: 1,
-          borderBottomColor: C.border,
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Fantasy Phishing home"
-          onPress={() => router.push("/")}
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            gap: compact ? 6 : 9,
-            flexShrink: 1,
-          }}
-        >
-          <Hook size={compact ? 32 : 40} />
-          <View style={{ flexShrink: 1 }}>
-            <Txt
-              style={{
-                fontSize: compact ? 16 : 19,
-                fontWeight: "800",
-                letterSpacing: -0.6,
-              }}
-            >
-              fantasy phishing<Txt style={{ color: C.teal }}>.</Txt>
-            </Txt>
-            {!compact && (
-              <Txt
-                muted
-                style={{ fontSize: 9, letterSpacing: 1.9, marginTop: 4 }}
-              >
-                A LITTLE BAIT. A BETTER INSTINCT.
-              </Txt>
-            )}
-          </View>
-        </Pressable>
-        {state && (
-          <Row style={{ gap: compact ? 7 : 12 }}>
-            <View
-              style={{
-                width: 7,
-                height: 7,
-                borderRadius: 10,
-                backgroundColor: connected ? C.teal : C.gold,
-              }}
-            />
-            {wide && (
-              <Txt muted style={{ fontSize: 11 }}>
-                {connected ? "Live updates on" : "Reconnecting"}
-              </Txt>
-            )}
-            <Pressable
-              accessibilityLabel="Open settings"
-              accessibilityRole="button"
-              onPress={() => router.push("/settings")}
-              style={{ padding: 9 }}
-            >
-              <Icon name="settings" color={C.muted} />
-            </Pressable>
-            <Avatar
-              name={state.me.name}
-              color={state.me.color || C.teal}
-              size={34}
-            />
-          </Row>
-        )}
-      </View>
-      <View style={{ flex: 1, flexDirection: "row" }}>
-        {wide && state && (
-          <View
-            style={{
-              width: 227,
-              padding: 23,
-              borderRightWidth: 1,
-              borderRightColor: C.border,
-              gap: 7,
-            }}
-          >
-            <View style={{ marginTop: 16, marginBottom: 20 }}>
-              <Label>Your private league</Label>
-              <Txt style={{ marginTop: 8, fontSize: 14, fontWeight: "700" }}>
-                The Usual Suspects
-              </Txt>
-              <Txt muted style={{ fontSize: 11, marginTop: 5 }}>
-                8 friends · Season 01
-              </Txt>
-            </View>
-            {nav.map(([href, label, icon]) => (
-              <Pressable
-                key={href}
-                accessibilityRole="link"
-                onPress={() => router.push(href as "/")}
-                style={{
-                  paddingVertical: 14,
-                  paddingHorizontal: 12,
-                  borderRadius: 9,
-                  flexDirection: "row",
-                  gap: 11,
-                  backgroundColor: path === href ? C.tealDark : "transparent",
-                }}
-              >
-                <Icon
-                  name={icon}
-                  size={18}
-                  color={path === href ? C.teal : C.muted}
-                />
-                <Txt
-                  style={{
-                    fontSize: 12,
-                    fontWeight: "600",
-                    color: path === href ? C.teal : C.muted,
-                  }}
-                >
-                  {label}
-                </Txt>
-                {href === "/activity" &&
-                  state.incoming.filter((i) => !i.decision).length > 0 && (
-                    <View style={{ marginLeft: "auto" }}>
-                      <Txt style={{ fontSize: 11, color: C.teal }}>
-                        {state.incoming.filter((i) => !i.decision).length}
-                      </Txt>
-                    </View>
-                  )}
-              </Pressable>
-            ))}
-            {state.role === "operator" && (
-              <Button
-                variant="ghost"
-                small
-                icon="settings"
-                onPress={() => router.push("/operator")}
-              >
-                Demo console
-              </Button>
-            )}
-            <View style={{ flex: 1 }} />
-            <View
-              style={{
-                padding: 16,
-                borderWidth: 1,
-                borderColor: C.border,
-                borderRadius: 12,
-                gap: 8,
-              }}
-            >
-              <Icon name="shield" color={C.teal} />
-              <Txt style={{ fontSize: 12, fontWeight: "700" }}>
-                Your game. Your rules.
-              </Txt>
-              <Txt muted style={{ fontSize: 11, lineHeight: 17 }}>
-                Contact only on your terms. Pause whenever you like.
-              </Txt>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => router.push("/settings")}
-              >
-                <Txt
-                  style={{
-                    fontSize: 11,
-                    color: C.teal,
-                    fontWeight: "700",
-                    marginTop: 3,
-                  }}
-                >
-                  Manage preferences →
-                </Txt>
-              </Pressable>
-            </View>
-          </View>
-        )}
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={{
-            padding: wide ? 36 : 20,
-            paddingBottom: 40,
-            alignItems: "center",
-          }}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View style={{ width: "100%", maxWidth: 1080 }}>
-            {error && (
-              <View
-                accessibilityRole="alert"
-                style={{
-                  backgroundColor: "#3B2D30",
-                  borderWidth: 1,
-                  borderColor: "#66433E",
-                  borderRadius: 12,
-                  padding: 14,
-                  gap: 10,
-                  marginBottom: 20,
-                }}
-              >
-                <Txt style={{ color: C.coral, lineHeight: 20, fontSize: 12 }}>
-                  {error}
-                </Txt>
-                <Row>
-                  <Button
-                    small
-                    variant="secondary"
-                    onPress={() => void safely(refresh())}
-                  >
-                    Retry
-                  </Button>
-                  <Button small variant="ghost" onPress={clearError}>
-                    Dismiss
-                  </Button>
-                </Row>
-              </View>
-            )}
-            {loading ? (
-              <View style={{ paddingTop: 100, alignItems: "center", gap: 20 }}>
-                <Hook size={70} />
-                <ActivityIndicator color={C.teal} />
-                <Txt muted>Getting the league together…</Txt>
-              </View>
-            ) : (
-              <Slot />
-            )}
-            <View style={{ marginTop: 38, alignItems: "center" }}>
-              <Txt muted style={{ fontSize: 10, letterSpacing: 0.2 }}>
-                PRIVATE LEAGUE · ADULTS ONLY · GOOD-NATURED MISCHIEF
-              </Txt>
-            </View>
+  const { state, loading, error, connected, clearError, refresh } = useSession();
+  const scroll = useRef<ScrollView>(null);
+  const scrollToTop = useCallback(() => { scroll.current?.scrollTo({ y: 0, animated: false }); }, []);
+  useEffect(scrollToTop, [path, state?.me.id, state?.selectedLeagueId, scrollToTop]);
+  const selected = state?.leagues.find(league => league.id === state.selectedLeagueId);
+  const activeTab = ["/leagues", "/matchups", "/chat", "/wrapped"].includes(path) ? "/league" : path;
+  const unread = selected?.myMatchId ? state?.incoming.filter(message => !message.decision).length || 0 : 0;
+  const navigation = (bottom: boolean) => tabs.map(([href, label, icon]) => {
+    const active = activeTab === href;
+    return <Pressable key={href} accessibilityRole="link" accessibilityLabel={label} accessibilityState={{ selected: active }} onPress={() => router.push(href as "/")}
+      style={({ pressed }) => ({ flex: bottom ? 1 : undefined, flexDirection: bottom ? "column" : "row", alignItems: "center", gap: bottom ? 5 : 13, paddingVertical: bottom ? 9 : 16, paddingHorizontal: bottom ? 3 : 17, borderRadius: 12, backgroundColor: !bottom && active ? C.tealDark : "transparent", opacity: pressed ? 0.65 : 1 })}>
+      <View style={{ position: "relative" }}><Icon name={icon} size={22} color={active ? C.teal : C.muted} />{href === "/activity" && unread > 0 && <View style={{ position: "absolute", top: -3, right: -5, width: 8, height: 8, borderRadius: 5, backgroundColor: C.coral }} />}</View>
+      <Txt style={{ fontSize: bottom ? 12 : 15, fontWeight: active ? "700" : "500", color: active ? C.teal : C.muted }}>{label}</Txt>
+    </Pressable>;
+  });
+  return <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
+    <StatusBar style="light" />
+    <View style={{ height: 68, paddingHorizontal: wide ? 28 : 18, borderBottomWidth: 1, borderBottomColor: C.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Fantasy Phishing home" onPress={() => router.push("/")} style={{ flexDirection: "row", alignItems: "center", gap: 9 }}>
+        <Hook size={39} /><Txt style={{ fontSize: 18, fontWeight: "700", letterSpacing: -0.5 }}>Fantasy <Txt style={{ color: C.teal, fontSize: 18, fontWeight: "700" }}>Phishing</Txt></Txt>
+      </Pressable>
+      {state && <Pressable accessibilityRole="button" accessibilityLabel="Account and preferences" onPress={() => router.push("/settings")} style={{ flexDirection: "row", alignItems: "center", gap: 9 }}>{wide && <Txt muted style={{ fontSize: 14 }}>{state.me.name}</Txt>}<Avatar name={state.me.name} color={state.me.color} size={34} /></Pressable>}
+    </View>
+    {!connected && state && <View style={{ paddingHorizontal: 20, paddingVertical: 7, backgroundColor: C.panel }}><Txt style={{ fontSize: 12, color: C.gold }}>Reconnecting… your saved progress is safe.</Txt></View>}
+    <View style={{ flex: 1, flexDirection: "row" }}>
+      {wide && state && <View style={{ width: 194, padding: 16, borderRightWidth: 1, borderRightColor: C.border, gap: 8 }}><View style={{ height: 16 }} />{navigation(false)}<View style={{ flex: 1 }} /><Button small variant="ghost" icon="settings" onPress={() => router.push("/settings")}>Settings</Button>{state.role === "operator" && <Button small variant="ghost" onPress={() => router.push("/operator")}>Demo tools</Button>}</View>}
+      <View style={{ flex: 1, minWidth: 0 }}>
+        {state && <View style={{ paddingHorizontal: wide ? 36 : 20, paddingVertical: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Choose league" onPress={() => router.push("/leagues")} style={{ flexDirection: "row", alignItems: "center", gap: 7, flexShrink: 1, minHeight: 30 }}><Txt muted style={{ fontSize: 13, flexShrink: 1 }}>{selected?.name || state.league.name}</Txt><Txt muted style={{ fontSize: 13 }}>⌄</Txt></Pressable>
+          {state.mode === "demo" && <Txt style={{ color: C.muted, fontSize: 11 }}>Practice mode</Txt>}
+        </View>}
+        <ScrollView ref={scroll} style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: wide ? 36 : 20, paddingTop: state ? 6 : 24, paddingBottom: 32, alignItems: "center" }} keyboardShouldPersistTaps="handled">
+          <View style={{ width: "100%", maxWidth: 1050 }}>
+            {Boolean(error) && <View accessibilityRole="alert" style={{ backgroundColor: "#382B2A", borderRadius: 12, padding: 16, gap: 10, marginBottom: 20 }}><Txt style={{ color: C.coral, lineHeight: 21, fontSize: 14 }}>{error}</Txt><Row><Button small variant="secondary" onPress={() => void safely(refresh())}>Retry</Button><Button small variant="ghost" onPress={clearError}>Dismiss</Button></Row></View>}
+            {loading ? <View style={{ paddingTop: 90, alignItems: "center", gap: 16 }}><ActivityIndicator color={C.teal} /><Txt muted>Getting things ready…</Txt></View> : <ScreenScrollContext.Provider value={scrollToTop}><Slot /></ScreenScrollContext.Provider>}
           </View>
         </ScrollView>
       </View>
-      {!wide && state && (
-        <View
-          style={{
-            flexDirection: "row",
-            backgroundColor: C.panelDeep,
-            borderTopWidth: 1,
-            borderTopColor: C.border,
-            paddingTop: 8,
-            paddingBottom: 10,
-          }}
-        >
-          {nav.map(([href, label, icon]) => (
-            <Pressable
-              accessibilityRole="link"
-              accessibilityLabel={label}
-              key={href}
-              onPress={() => router.push(href as "/")}
-              style={{ flex: 1, alignItems: "center", gap: 7, padding: 8 }}
-            >
-              <Icon
-                name={icon}
-                size={20}
-                color={path === href ? C.teal : C.muted}
-              />
-              <Txt
-                style={{
-                  fontSize: 9,
-                  fontWeight: "700",
-                  color: path === href ? C.teal : C.muted,
-                }}
-              >
-                {label === "Draft a challenge"
-                  ? "Draft"
-                  : label === "The league"
-                    ? "League"
-                    : label}
-              </Txt>
-            </Pressable>
-          ))}
-        </View>
-      )}
-    </SafeAreaView>
-  );
+    </View>
+    {!wide && state && <View style={{ flexDirection: "row", borderTopWidth: 1, borderTopColor: C.border, paddingTop: 4, paddingBottom: 5, backgroundColor: C.panelDeep }}>{navigation(true)}</View>}
+  </SafeAreaView>;
 }
-export default function Layout() {
-  return (
-    <SafeAreaProvider>
-      <SessionProvider>
-        <Frame />
-      </SessionProvider>
-    </SafeAreaProvider>
-  );
-}
+export default function Layout() { return <SafeAreaProvider><SessionProvider><Frame /></SessionProvider></SafeAreaProvider>; }

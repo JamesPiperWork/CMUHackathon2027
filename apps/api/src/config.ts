@@ -47,7 +47,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       env.DEMO_DATA_FILE ?? env.DATA_FILE ?? "data/demo.json",
     ),
     mongodbUri: env.MONGODB_URI ?? "",
-    matchDurationMinutes: Number(env.MATCH_DURATION_MINUTES ?? 30),
+    matchDurationMinutes: Number(env.MATCH_DURATION_MINUTES ?? 10080),
     jobIntervalMs: 500,
   };
 }

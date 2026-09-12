@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { MongoClient } from "mongodb";
-import type { Database } from "@fp/shared";
+import { initializeLeagues, type Database, type GamePool } from "@fp/shared";
 export interface Repository {
   read(): Promise<Database>;
   transact<T>(change: (db: Database) => T | Promise<T>): Promise<T>;
@@ -24,6 +24,7 @@ export class FileRepository implements Repository {
       state = seed();
     }
     const repo = new FileRepository(path, state);
+    initializeLeagues(state);
     await repo.persist(state);
     return repo;
   }
@@ -94,6 +95,7 @@ export class MongoRepository implements Repository {
       .findOne({ _id: "league" });
     if (!value) throw new Error("Missing league state");
     const { _id, ...state } = value;
+    initializeLeagues(state);
     return state as Database;
   }
   async transact<T>(change: (db: Database) => T | Promise<T>): Promise<T> {
@@ -112,6 +114,7 @@ export class MongoRepository implements Repository {
           );
           if (!current) throw new Error("Missing state");
           const next = structuredClone(current);
+          initializeLeagues(next);
           const result = await change(next);
           next.revision = current.revision + 1;
           const written = await collection.replaceOne(
@@ -121,15 +124,15 @@ export class MongoRepository implements Repository {
           );
           if (written.modifiedCount !== 1)
             throw new Error("Concurrent state update");
-          for (const decision of next.decisions.filter(
-            (d) => !current.decisions.some((c) => c.id === d.id),
+          for (const decision of gamePools(next).flatMap((p) => p.decisions).filter(
+            (d) => !gamePools(current).some((p) => p.decisions.some((c) => c.id === d.id)),
           ))
             await this.client
               .db()
               .collection("decisions")
               .insertOne(decision, { session });
-          for (const event of next.scoreEvents.filter(
-            (d) => !current.scoreEvents.some((c) => c.id === d.id),
+          for (const event of gamePools(next).flatMap((p) => p.scoreEvents).filter(
+            (d) => !gamePools(current).some((p) => p.scoreEvents.some((c) => c.id === d.id)),
           ))
             await this.client
               .db()
@@ -153,4 +156,35 @@ export class MongoRepository implements Repository {
   async close() {
     await this.client.close();
   }
+}
+
+const poolKeys = ["match", "scenarios", "decisions", "scoreEvents", "jobs", "attempts"] as const;
+/** A transaction-scoped view keeps concurrent match engines isolated. */
+export class MatchRepository implements Repository {
+  constructor(public base: Repository, public matchId: string) {}
+  private view(db: Database): Database {
+    if (db.match.id === this.matchId) return db;
+    const pool = db.matchPools?.find((p) => p.match.id === this.matchId);
+    if (!pool) throw new Error("Match not found");
+    return { ...db, ...pool, allAttempts: gamePools(db).flatMap((p) => p.attempts) };
+  }
+  async read() { return this.view(await this.base.read()); }
+  async transact<T>(change: (db: Database) => T | Promise<T>): Promise<T> {
+    return this.base.transact(async (db) => {
+      if (db.match.id === this.matchId) return change(db);
+      const view = this.view(db);
+      const result = await change(view);
+      const pool = db.matchPools!.find((p) => p.match.id === this.matchId)!;
+      for (const key of poolKeys) (pool as unknown as Record<string, unknown>)[key] = view[key];
+      for (const key of Object.keys(view) as (keyof Database)[])
+        if (key !== "allAttempts" && !(poolKeys as readonly string[]).includes(key))
+          (db as unknown as Record<string, unknown>)[key] = view[key];
+      return result;
+    });
+  }
+  async close() {}
+}
+
+export function gamePools(db: Database): GamePool[] {
+  return [Object.fromEntries(poolKeys.map((key) => [key, db[key]])) as unknown as GamePool, ...(db.matchPools ?? [])];
 }

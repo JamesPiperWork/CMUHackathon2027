@@ -16,6 +16,7 @@ import {
   scenarioConsistent,
   interests,
   type Database,
+  type DeliveryAttempt,
   type DeliveryAdapter,
   type DeliveryEnvelope,
   type DeliveryResult,
@@ -25,6 +26,7 @@ import {
   type Readiness,
   type DecisionChoice,
 } from "@fp/shared";
+import { personalizeFixture } from "./scouting.js";
 
 type Env = NodeJS.ProcessEnv;
 const digest = (value: string) =>
@@ -33,6 +35,18 @@ const flag = (env: Env, key: string) => env[key] === "true";
 const present = (env: Env, ...keys: string[]) =>
   keys.every((key) => Boolean(env[key]?.trim()));
 const isLive = (env: Env) => env.APP_MODE === "live";
+function allAttempts(db: Database): DeliveryAttempt[] {
+  return [
+    ...new Map(
+      (
+        db.allAttempts ?? [
+          ...db.attempts,
+          ...(db.matchPools ?? []).flatMap((pool) => pool.attempts),
+        ]
+      ).map((attempt) => [attempt.id, attempt]),
+    ).values(),
+  ];
+}
 function httpsOrigin(value: string | undefined) {
   try {
     const url = new URL(value ?? "");
@@ -100,7 +114,7 @@ export function getReadiness(
     );
     const used =
       c && tz
-        ? db.attempts.filter(
+        ? allAttempts(db).filter(
             (a) =>
               a.recipientId === userId &&
               a.channel === channel &&
@@ -268,7 +282,7 @@ export function getReadiness(
   });
 }
 
-const promptVersion = "fantasy-personalize-v1";
+const promptVersion = "fantasy-sender-scouting-v2";
 const jsonSchema = {
   type: "object",
   additionalProperties: false,
@@ -297,7 +311,11 @@ export async function generateContent(
 ): Promise<GenerationResult> {
   const env = options.env ?? process.env,
     model = env.GEMINI_MODEL || "gemini-2.5-flash";
-  const fixture = contentSchema.parse(input.fixture);
+  const fixture = personalizeFixture(
+    contentSchema.parse(input.fixture),
+    input.interest,
+    input.scouting,
+  );
   const fallback = (
     reason: string,
     source: "fixture" | "fallback" = "fallback",
@@ -309,7 +327,12 @@ export async function generateContent(
     reason,
   });
   if (!env.GEMINI_API_KEY)
-    return fallback("No Gemini key: prepared, reviewed content.", "fixture");
+    return fallback(
+      input.scouting
+        ? "Prepared message using your chosen interest and personal details. No Gemini key is configured."
+        : "No Gemini key: prepared, reviewed content.",
+      "fixture",
+    );
   if (
     !interests.includes(input.interest) ||
     !["ticket-drop", "parcel-update", "game-night"].includes(input.templateId)
@@ -343,6 +366,7 @@ export async function generateContent(
                     channel: input.channel,
                     templateId: input.templateId,
                     approvedFixture: fixture,
+                    senderScoutingData: input.scouting?.markdown,
                   }),
                 },
               ],
@@ -378,12 +402,16 @@ export async function generateContent(
       candidate.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
     const parsed = contentSchema.safeParse(JSON.parse(candidateText));
     if (!parsed.success) return fallback("Generated fields failed validation.");
-    const content = {
-      ...parsed.data,
-      senderDisplayName: fixture.senderDisplayName,
-      cueAnnotations: fixture.cueAnnotations,
-      explanation: fixture.explanation,
-    };
+    const content = personalizeFixture(
+      {
+        ...parsed.data,
+        senderDisplayName: fixture.senderDisplayName,
+        cueAnnotations: fixture.cueAnnotations,
+        explanation: fixture.explanation,
+      },
+      input.interest,
+      input.scouting,
+    );
     const review = contentReview(content);
     if (!review.valid || !scenarioConsistent(content, input.templateId))
       return fallback(
@@ -411,9 +439,7 @@ export class SimulatorAdapter implements DeliveryAdapter {
 export class SmtpAdapter implements DeliveryAdapter {
   constructor(
     private env: Env = process.env,
-    private sendMail?: (
-      message: Record<string, unknown>,
-    ) => Promise<{
+    private sendMail?: (message: Record<string, unknown>) => Promise<{
       accepted?: unknown[];
       rejected?: unknown[];
       messageId?: string;
@@ -727,7 +753,9 @@ export async function dispatch(
     env,
   ).find((r) => r.channel === envelope.channel)!;
   const member = context.db.members.find(
-      (m) => m.userId === envelope.recipientId,
+      (m) =>
+        m.userId === envelope.recipientId &&
+        m.leagueId === context.db.match.leagueId,
     ),
     scenario = context.db.scenarios.find((s) => s.id === envelope.scenarioId);
   if (row.status !== "ready")
@@ -787,7 +815,11 @@ export async function dispatch(
     const latest = await context.reload(),
       now = Date.now();
     const current = latest.scenarios.find((s) => s.id === envelope.scenarioId),
-      recipient = latest.members.find((m) => m.userId === envelope.recipientId);
+      recipient = latest.members.find(
+        (m) =>
+          m.userId === envelope.recipientId &&
+          m.leagueId === latest.match.leagueId,
+      );
     if (
       getReadiness(latest, envelope.recipientId, now, env).find(
         (r) => r.channel === "voice",
@@ -856,6 +888,7 @@ interface ProviderService {
     choice: DecisionChoice,
   ): Promise<unknown>;
   pauseUser(userId: string): Promise<void>;
+  forScenario?(scenarioId: string): Promise<ProviderService>;
 }
 function paramsFrom(request: FastifyRequest) {
   if (
@@ -892,14 +925,26 @@ export function registerProviderRoutes(
     const callbackId = digest(
       JSON.stringify(Object.entries(p).sort(([a], [b]) => a.localeCompare(b))),
     );
-    const outcome = await service.transact((db) => {
+    const known = allAttempts(await service.readDb()).find(
+      (a) =>
+        a.provider === "twilio" && a.providerId === (p.MessageSid || p.CallSid),
+    );
+    if (!known)
+      return reply.code(404).send({ error: "No assigned delivery attempt." });
+    const scoped = service.forScenario
+      ? await service.forScenario(known.scenarioId)
+      : service;
+    const outcome = await scoped.transact((db) => {
       const attempt = db.attempts.find(
         (a) =>
           a.provider === "twilio" &&
           a.providerId === (p.MessageSid || p.CallSid),
       );
       if (!attempt) return false;
-      const member = db.members.find((m) => m.userId === attempt.recipientId);
+      const member = db.members.find(
+        (m) =>
+          m.userId === attempt.recipientId && m.leagueId === db.match.leagueId,
+      );
       if (p.To !== member?.consent.contacts[attempt.channel]?.destination)
         return false;
       if (
@@ -913,7 +958,7 @@ export function registerProviderRoutes(
         attempt.status,
         p.MessageStatus || p.CallStatus,
       );
-      attempt.updatedAt = service.now(db);
+      attempt.updatedAt = scoped.now(db);
       const scenario = db.scenarios.find((s) => s.id === attempt.scenarioId);
       if (scenario) scenario.deliveryStatus = attempt.status;
       return true;
@@ -949,14 +994,30 @@ export function registerProviderRoutes(
     const p = verified(request);
     if (!p)
       return reply.code(403).send({ error: "Invalid provider signature." });
-    const db = await service.readDb();
+    const known = allAttempts(await service.readDb()).find(
+      (a) =>
+        a.provider === "twilio" &&
+        a.channel === "voice" &&
+        a.providerId === p.CallSid,
+    );
+    if (!known)
+      return reply
+        .code(403)
+        .send({ error: "Call does not match a verified recipient." });
+    const scoped = service.forScenario
+      ? await service.forScenario(known.scenarioId)
+      : service;
+    const db = await scoped.readDb();
     const attempt = db.attempts.find(
       (a) =>
         a.provider === "twilio" &&
         a.channel === "voice" &&
         a.providerId === p.CallSid,
     );
-    const member = db.members.find((m) => m.userId === attempt?.recipientId);
+    const member = db.members.find(
+      (m) =>
+        m.userId === attempt?.recipientId && m.leagueId === db.match.leagueId,
+    );
     const scenario = db.scenarios.find((s) => s.id === attempt?.scenarioId);
     if (
       !attempt ||
@@ -981,13 +1042,13 @@ export function registerProviderRoutes(
       if (
         !scenario.locked ||
         scenario.releasedAt === null ||
-        scenario.tokenExpiresAt <= service.now(db) ||
+        scenario.tokenExpiresAt <= scoped.now(db) ||
         db.match.state !== "active"
       )
         return reply
           .code(410)
           .send({ error: "Challenge is no longer active." });
-      await service.decisionFor(
+      await scoped.decisionFor(
         member.userId,
         scenario.id,
         p.Digits === "1" ? "trust" : "flag",
@@ -1008,7 +1069,10 @@ export function registerProviderRoutes(
         process.env.TOKEN_SECRET ?? "",
       );
       if (!scope) return reply.code(404).send();
-      const db = await service.readDb();
+      const scoped = service.forScenario
+        ? await service.forScenario(scope.scenarioId)
+        : service;
+      const db = await scoped.readDb();
       const attempt = db.attempts.find(
         (a) =>
           a.id === scope.attemptId &&
@@ -1023,7 +1087,7 @@ export function registerProviderRoutes(
         !scenario ||
         scenario.recipientId !== scope.recipientId ||
         db.match.state !== "active" ||
-        scenario.tokenExpiresAt <= service.now(db)
+        scenario.tokenExpiresAt <= scoped.now(db)
       )
         return reply.code(404).send();
       try {

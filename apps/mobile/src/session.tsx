@@ -38,7 +38,7 @@ interface SessionContext {
   connected: boolean;
   mode: "demo" | "live";
   token: string | null;
-  signIn: (player: "alex" | "jordan" | "operator") => Promise<void>;
+  signIn: (player: "alex" | "jordan" | "sam" | "riley" | "casey" | "morgan" | "jamie" | "taylor" | "operator") => Promise<void>;
   signInLive: () => Promise<void>;
   signOut: () => Promise<void>;
   request: <T = unknown>(
@@ -211,7 +211,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     },
     [fetchApi, refresh],
   );
-  const signIn = async (player: "alex" | "jordan" | "operator") => {
+  const signIn = async (player: "alex" | "jordan" | "sam" | "riley" | "casey" | "morgan" | "jamie" | "taylor" | "operator") => {
     setBusy(true);
     setError(null);
     try {

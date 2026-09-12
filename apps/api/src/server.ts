@@ -11,6 +11,8 @@ import {
   type Session,
 } from "@fp/shared";
 import { ApiError, GameService } from "./service.js";
+import { LeagueService } from "./leagues.js";
+import { registerMobilePreview } from "./mobile-preview.js";
 import { registerProviderRoutes } from "./providers.js";
 import { registerLiveAuth, resolveLiveIdentity } from "./auth-live.js";
 const escape = (value: unknown) =>
@@ -39,6 +41,7 @@ export async function createServer(
   await app.register(cors, {
     origin: service.config.appOrigin,
     credentials: true,
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "OPTIONS"],
   });
   await app.register(cookie);
   await app.register(formbody);
@@ -149,7 +152,7 @@ export async function createServer(
     )
       throw new ApiError(403, "Origin rejected");
     const { player } = z
-      .object({ player: z.enum(["alex", "jordan", "operator"]) })
+      .object({ player: z.enum(["alex", "jordan", "sam", "riley", "casey", "morgan", "jamie", "taylor", "operator"]) })
       .strict()
       .parse(request.body);
     const result = await service.createSession(
@@ -165,9 +168,49 @@ export async function createServer(
     });
     return result;
   });
-  app.get("/api/state", async (request) =>
-    service.state(await getSession(request)),
-  );
+  const leagues = new LeagueService(service);
+  registerMobilePreview(app, service.config.appOrigin);
+  app.get("/api/state", async (request) => {
+    const session = await getSession(request);
+    return (await service.forSession(session)).state(session);
+  });
+  app.get("/api/leagues", async (request) => leagues.list(await getSession(request)));
+  app.post("/api/leagues", async (request) => {
+    const session = await getSession(request, true);
+    const { name } = z.object({ name: z.string().trim().min(3).max(48) }).strict().parse(request.body);
+    return leagues.create(session, name);
+  });
+  app.post("/api/leagues/join", async (request) => {
+    const session = await getSession(request, true);
+    const { inviteCode } = z.object({ inviteCode: z.string().trim().min(4).max(20) }).strict().parse(request.body);
+    return leagues.join(session, inviteCode);
+  });
+  app.post<{ Params: { id: string } }>("/api/leagues/:id/select", async (request) => leagues.select(await getSession(request, true), request.params.id));
+  app.post<{ Params: { id: string } }>("/api/matches/:id/select", async (request) => leagues.selectMatch(await getSession(request, true), request.params.id));
+  app.get<{ Params: { id: string } }>("/api/leagues/:id/matchups", async (request) => leagues.matchups(await getSession(request), request.params.id));
+  app.get<{ Params: { id: string } }>("/api/leagues/:id/standings", async (request) => leagues.standings(await getSession(request), request.params.id));
+  app.post<{ Params: { id: string } }>("/api/leagues/:id/next-week", async (request) => leagues.nextWeek(await getSession(request, true), request.params.id));
+  app.post<{ Params: { id: string } }>("/api/leagues/:id/settings", async (request) => {
+    const session = await getSession(request, true);
+    const input = z.object({ difficulty: z.enum(["rookie", "standard", "expert"]), familyFriendly: z.boolean(), channels: z.object({ email: z.boolean(), sms: z.boolean(), voice: z.boolean() }).strict() }).strict().parse(request.body);
+    return leagues.settings(session, request.params.id, input);
+  });
+  app.get<{ Params: { id: string } }>("/api/leagues/:id/chat", async (request) => leagues.chat(await getSession(request), request.params.id));
+  app.post<{ Params: { id: string } }>("/api/leagues/:id/chat", async (request) => {
+    const session = await getSession(request, true);
+    const { body } = z.object({ body: z.string().trim().min(1).max(600) }).strict().parse(request.body);
+    return leagues.postChat(session, request.params.id, body);
+  });
+  app.get<{ Params: { id: string; matchId: string } }>("/api/leagues/:id/matchups/:matchId/recap", async (request) => leagues.recap(await getSession(request), request.params.id, request.params.matchId));
+  app.get<{ Params: { targetId: string } }>("/api/scouting/:targetId", async (request) => {
+    const session = await getSession(request);
+    return (await service.forSession(session, true)).scouting(session.userId, request.params.targetId);
+  });
+  app.put<{ Params: { targetId: string } }>("/api/scouting/:targetId", async (request) => {
+    const session = await getSession(request, true);
+    const input = z.object({ interests: z.array(z.enum(interests)).min(1).max(3), markdown: z.string().max(1800) }).strict().parse(request.body);
+    return (await service.forSession(session, true)).saveScouting(session.userId, request.params.targetId, input);
+  });
   app.post("/api/consent", async (request) => {
     const session = await getSession(request, true);
     const input = z
@@ -180,13 +223,12 @@ export async function createServer(
         startHour: z.number().int().min(0).max(23),
         endHour: z.number().int().min(1).max(24),
         familyFriendly: z.boolean(),
-        interests: z.array(z.enum(interests)).min(1).max(3).optional(),
         displayName: z.string().trim().min(2).max(24).optional(),
         excludedThemes: z.array(z.string().trim().max(80)).max(5).optional(),
       })
       .strict()
       .parse(request.body);
-    await service.consent(session.userId, input);
+    await (await service.forSession(session, true)).consent(session.userId, input);
     return { ok: true };
   });
   app.post("/api/pause", async (request) => {
@@ -200,7 +242,7 @@ export async function createServer(
   });
   app.post("/api/drafts/generate", async (request, reply) => {
     const session = await getSession(request, true);
-    const result = await service.generate(
+    const result = await (await service.forSession(session, true)).generate(
       session.userId,
       generateSchema.parse(request.body),
     );
@@ -222,7 +264,7 @@ export async function createServer(
       })
       .strict()
       .parse(request.body);
-    await service.editDraft(session.userId, request.params.id, input);
+    await (await service.forSession(session, true)).editDraft(session.userId, request.params.id, input);
     return { ok: true };
   });
   app.post<{
@@ -231,12 +273,12 @@ export async function createServer(
     };
   }>("/api/drafts/:id/lock", async (request) => {
     const session = await getSession(request, true);
-    await service.lock(session.userId, request.params.id);
+    await (await service.forSession(session, true)).lock(session.userId, request.params.id);
     return { ok: true };
   });
   app.post("/api/match/activate", async (request) => {
     const session = await getSession(request, true);
-    await service.activate(session.userId);
+    await (await service.forSession(session, true)).activate(session.userId);
     return { ok: true };
   });
   app.post<{
@@ -245,7 +287,7 @@ export async function createServer(
     };
   }>("/api/scenarios/:id/decision", async (request) => {
     const session = await getSession(request, true);
-    return service.decisionFor(
+    return (await service.forSession(session, true)).decisionFor(
       session.userId,
       request.params.id,
       decisionSchema.parse(request.body).choice,
@@ -257,12 +299,12 @@ export async function createServer(
     };
   }>("/api/scenarios/:id/ignore", async (request) => {
     const session = await getSession(request, true);
-    await service.ignore(session.userId, request.params.id);
+    await (await service.forSession(session, true)).ignore(session.userId, request.params.id);
     return { ok: true };
   });
   app.get("/api/operator", async (request) => {
-    await operator(request);
-    return service.operator();
+    const session = await operator(request);
+    return (await service.forSession(session)).operator();
   });
   app.post("/api/operator/reset", async (request) => {
     await operator(request);
@@ -270,15 +312,15 @@ export async function createServer(
     return { ok: true };
   });
   app.post("/api/operator/release", async (request) => {
-    await operator(request);
+    const session = await operator(request);
     const { recipientId, all } = z
       .object({
-        recipientId: z.enum(["alex", "jordan"]).optional(),
+        recipientId: z.enum(["alex", "jordan", "sam", "riley", "casey", "morgan", "jamie", "taylor"]).optional(),
         all: z.boolean().optional(),
       })
       .strict()
       .parse(request.body ?? {});
-    await service.release(recipientId, all);
+    await (await service.forSession(session, true)).release(recipientId, all);
     return { ok: true };
   });
   app.post("/api/operator/advance", async (request) => {
@@ -291,8 +333,8 @@ export async function createServer(
     return { ok: true };
   });
   app.post("/api/operator/finalize", async (request) => {
-    await operator(request);
-    await service.finalize();
+    const session = await operator(request);
+    await (await service.forSession(session, true)).finalize();
     return { ok: true };
   });
   app.get<{
@@ -343,7 +385,7 @@ export async function createServer(
       throw new ApiError(403, "Origin rejected");
     const { scenario } = await service.challengeToken(request.params.token);
     const { player } = z
-      .object({ player: z.enum(["alex", "jordan"]) })
+      .object({ player: z.enum(["alex", "jordan", "sam", "riley", "casey", "morgan", "jamie", "taylor"]) })
       .strict()
       .parse(request.body);
     if (player !== scenario.recipientId)
@@ -369,7 +411,7 @@ export async function createServer(
       .object({ choice: z.enum(["trust", "flag"]), csrf: z.string() })
       .strict()
       .parse(request.body);
-    await service.decisionFor(session.userId, scenario.id, input.choice);
+    await (await service.forScenario(scenario.id)).decisionFor(session.userId, scenario.id, input.choice);
     return reply.redirect(`/r/${encodeURIComponent(request.params.token)}`);
   });
   app.get("/", async (_request, reply) =>
@@ -406,13 +448,12 @@ export async function createServer(
     });
   });
   service.onChange = () => {
-    for (const id of ["alex", "jordan"])
-      io.to(`user:${id}`).emit("state:changed");
+    io.emit("state:changed");
   };
   const timer = startJobs
     ? setInterval(() => {
         void service
-          .tick()
+          .tickAll()
           .catch((error) =>
             app.log.error({
               message:

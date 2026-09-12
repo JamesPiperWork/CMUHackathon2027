@@ -28,6 +28,9 @@ const operator = await request<{ token: string }>(
   undefined,
   { player: "operator" },
 );
+// The rehearsal always targets the original fixture, even if a manager is
+// currently using a different league in the product UI.
+await request("/api/matches/match-week-04/select", operator.token, {});
 const state = await request<PlayerState>("/api/state", operator.token);
 if (state.match.state !== "active")
   throw new Error(
@@ -46,6 +49,7 @@ for (const player of ["jordan", "alex"] as const) {
     undefined,
     { player },
   );
+  await request("/api/matches/match-week-04/select", session.token, {});
   let current = await request<PlayerState>("/api/state", session.token);
   let tookBait = current.incoming.some(
     (s) => s.decision && !s.decision.correct && s.decision.choice === "trust",
@@ -68,5 +72,5 @@ for (const player of ["jordan", "alex"] as const) {
 }
 const final = await request<PlayerState>("/api/state", operator.token);
 console.log(
-  `Saved result: ${final.match.result}; Alex ${final.match.scores.alex}, Jordan ${final.match.scores.jordan}. Open The league for the recap.`,
+  `Saved result: ${final.match.result}; Alex ${final.match.scores.alex}, Jordan ${final.match.scores.jordan}. Open Weekly Wrapped for the recap.`,
 );

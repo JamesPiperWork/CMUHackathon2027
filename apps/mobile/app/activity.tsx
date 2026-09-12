@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Pressable, View, useWindowDimensions } from "react-native";
+import { Pressable, View } from "react-native";
 import { router } from "expo-router";
 import type { ScenarioPublic } from "@fp/shared";
 import { useSession, safely } from "../src/session";
@@ -23,7 +23,8 @@ import { ActivityCard, Welcome } from "./index";
 function Message({ scenario }: { scenario: ScenarioPublic }) {
   const { state, request, busy } = useSession();
   const [inspect, setInspect] = useState(false),
-    [answered, setAnswered] = useState(false);
+    [answered, setAnswered] = useState(false),
+    [clues, setClues] = useState(false);
   const voice = scenario.channel === "voice";
   const reveal = scenario.reveal;
   const decision = scenario.decision;
@@ -33,7 +34,7 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
       <View
         style={{
           padding: 19,
-          backgroundColor: "#203039",
+          backgroundColor: C.panelDeep,
           borderBottomWidth: 1,
           borderBottomColor: C.border,
         }}
@@ -46,14 +47,14 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
             />
             <Label color={C.teal}>
               {scenario.channel === "email"
-                ? "Email inbox"
+                ? "Email"
                 : scenario.channel === "sms"
-                  ? "Text messages"
+                  ? "Text"
                   : "Incoming call"}
             </Label>
           </Row>
           <Badge>
-            {state?.mode === "demo" ? "SIMULATED DELIVERY" : "IN-APP RESPONSE"}
+            {state?.mode === "demo" ? "Simulated" : "In-app response"}
           </Badge>
         </Row>
       </View>
@@ -96,15 +97,7 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
             <Txt style={{ fontSize: 15, lineHeight: 27 }}>
               {scenario.content.bodyText}
             </Txt>
-            <Button
-              small
-              variant="ghost"
-              style={{ alignSelf: "flex-start", marginTop: 12 }}
-              icon="eye"
-              onPress={() => setInspect(true)}
-            >
-              Inspect response destination
-            </Button>
+
           </View>
         ) : scenario.channel === "sms" ? (
           <View>
@@ -118,13 +111,13 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
                 {scenario.content.senderDisplayName}
               </Txt>
               <Txt muted style={{ fontSize: 10 }}>
-                Fictional text conversation
+                Text conversation
               </Txt>
             </View>
             <View
               style={{
                 alignSelf: "flex-start",
-                backgroundColor: "#304049",
+                backgroundColor: C.panelDeep,
                 padding: 18,
                 borderRadius: 19,
                 borderBottomLeftRadius: 4,
@@ -152,7 +145,7 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
               style={{
                 padding: 24,
                 borderRadius: 80,
-                backgroundColor: "#263E43",
+                backgroundColor: C.tealDark,
                 marginTop: 4,
               }}
             >
@@ -167,18 +160,19 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
               {decision
                 ? "Call reviewed"
                 : answered
-                  ? "Connected · transcript mode"
+                  ? "Call transcript"
                   : scenario.deliveryStatus === "unanswered"
                     ? "Call ignored · 0 points"
-                    : "Synthetic stock voice · fictional caller"}
+                    : "Read the caller’s message"}
             </Txt>
             {!answered && !decision ? (
               <Row
                 style={{ marginTop: 14, marginBottom: 18, flexWrap: "wrap" }}
               >
                 <Button icon="voice" onPress={() => setAnswered(true)}>
-                  Answer call
+                  Read call
                 </Button>
+                {state?.mode === "demo" && (
                 <Button
                   variant="coral"
                   icon="close"
@@ -191,11 +185,12 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
                 >
                   Ignore
                 </Button>
+                )}
               </Row>
             ) : (
               <View style={{ width: "100%", gap: 13, marginTop: 12 }}>
                 <Badge color={C.gold}>
-                  TRANSCRIPT · AUDIO NOT AVAILABLE IN THIS DEMO
+                  Call transcript · audio unavailable
                 </Badge>
                 <View
                   style={{
@@ -209,8 +204,7 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
                   </Txt>
                 </View>
                 <Txt muted style={{ fontSize: 11, lineHeight: 19 }}>
-                  The caller’s words above are the approved script. No recipient
-                  recording or transcription takes place.
+                  Read the caller’s message, then choose Trust or Flag.
                 </Txt>
               </View>
             )}
@@ -223,7 +217,7 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
           icon="eye"
           onPress={() => setInspect(!inspect)}
         >
-          {inspect ? "Hide message details" : "Inspect sender & destination"}
+          {inspect ? "Hide sender and context" : "Check sender and context"}
         </Button>
         {inspect && (
           <View
@@ -242,25 +236,21 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
               </Txt>
             </View>
             <View style={{ gap: 5 }}>
-              <Label>Action destination</Label>
+              <Label>Response destination</Label>
               <Txt style={{ fontSize: 11, lineHeight: 19 }}>
                 {scenario.inspection.destination}
               </Txt>
             </View>
             <Txt muted style={{ fontSize: 10, lineHeight: 17 }}>
-              Inspection never submits a decision. Compare these details with
-              your activity card.
+              Checking these details does not submit an answer.
             </Txt>
+            <ActivityCard />
           </View>
         )}
         {!decision && (!voice || answered) && (
           <View style={{ marginTop: 22, gap: 12 }}>
-            <Label>What’s your call?</Label>
-            <Txt muted style={{ fontSize: 12, lineHeight: 20 }}>
-              Trust an expected message, or flag a phishing challenge. Your
-              submitted decision locks the answer.
-            </Txt>
-            {voice ? (
+            {!confirm && <Txt style={{ fontWeight: "700", fontSize: 16 }}>Is this message bait?</Txt>}
+            {!confirm && (voice ? (
               <Row style={{ flexWrap: "wrap" }}>
                 <Button
                   style={{ flex: 1 }}
@@ -268,7 +258,7 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
                   loading={busy}
                   onPress={() => setConfirm("trust")}
                 >
-                  1 · Trust
+                  Trust
                 </Button>
                 <Button
                   style={{ flex: 1 }}
@@ -277,7 +267,7 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
                   loading={busy}
                   onPress={() => setConfirm("flag")}
                 >
-                  2 · Flag
+                  Flag
                 </Button>
                 <Button
                   small
@@ -286,7 +276,7 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
                     void safely(request("/api/pause", { paused: true }))
                   }
                 >
-                  9 · Pause contact
+                  Pause contact
                 </Button>
               </Row>
             ) : (
@@ -297,7 +287,7 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
                   loading={busy}
                   onPress={() => setConfirm("trust")}
                 >
-                  Trust it
+                  Trust
                 </Button>
                 <Button
                   style={{ flex: 1 }}
@@ -306,10 +296,10 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
                   loading={busy}
                   onPress={() => setConfirm("flag")}
                 >
-                  Flag it
+                  Flag
                 </Button>
               </Row>
-            )}
+            ))}
             {confirm && (
               <View
                 style={{
@@ -321,8 +311,7 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
                 }}
               >
                 <Txt style={{ fontSize: 13, lineHeight: 21 }}>
-                  Lock in “{confirm === "trust" ? "Trust it" : "Flag it"}”? A
-                  correct decision earns +3; an incorrect one scores −3.
+                  {confirm === "trust" ? "Trust this message?" : "Flag this as phishing?"} You can’t change your answer after submitting.
                 </Txt>
                 <Row>
                   <Button
@@ -336,14 +325,14 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
                       )
                     }
                   >
-                    Submit decision
+                    Confirm answer
                   </Button>
                   <Button
                     small
                     variant="ghost"
                     onPress={() => setConfirm(null)}
                   >
-                    Keep inspecting
+                    Go back
                   </Button>
                 </Row>
               </View>
@@ -356,9 +345,9 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
               accessibilityRole="alert"
               style={{
                 marginTop: 20,
-                backgroundColor: decision.correct ? "#203D37" : "#3B302F",
+                backgroundColor: decision.correct ? C.tealDark : C.panelDeep,
                 borderWidth: 1,
-                borderColor: decision.correct ? "#43715F" : "#704C43",
+                borderColor: decision.correct ? C.teal : C.coral,
                 borderRadius: 13,
                 padding: 22,
                 gap: 15,
@@ -395,13 +384,14 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
               </Txt>
               <Badge color={reveal.isPhishing ? C.coral : C.teal}>
                 {reveal.isPhishing
-                  ? "PHISHING CHALLENGE"
-                  : "EXPECTED FICTIONAL MESSAGE"}
+                  ? "Phishing challenge"
+                  : "Expected message"}
               </Badge>
               <Txt style={{ fontSize: 13, lineHeight: 23 }}>
                 {reveal.explanation}
               </Txt>
-              {reveal.cueAnnotations.map((cue, i) => (
+              <Button small variant="ghost" onPress={() => setClues(!clues)}>{clues ? "Hide the clues" : "See the clues"}</Button>
+              {clues && reveal.cueAnnotations.map((cue, i) => (
                 <Row key={i} style={{ alignItems: "flex-start", gap: 9 }}>
                   <Icon
                     name="eye"
@@ -421,8 +411,7 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
                 </Txt>
               )}
               <Txt muted style={{ fontSize: 10, lineHeight: 18 }}>
-                Answer locked · server-scored · opening and inspection earned no
-                points.
+                Answer saved.
               </Txt>
             </View>
           </RevealMotion>
@@ -433,212 +422,51 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
 }
 export default function Activity() {
   const { state } = useSession();
-  const wide = useWindowDimensions().width >= 1120;
-  const [view, setView] = useState<"incoming" | "outgoing">("incoming"),
-    [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [showMessages, setShowMessages] = useState(false);
+  const [showSent, setShowSent] = useState(false);
+  const [showScoring, setShowScoring] = useState(false);
   useEffect(() => {
-    if (
-      state?.incoming.length &&
-      !state.incoming.some((s) => s.id === selected)
-    )
-      setSelected(
-        (state.incoming.find((s) => !s.decision) || state.incoming[0]).id,
-      );
+    if (state?.incoming.length && !state.incoming.some((s) => s.id === selected))
+      setSelected((state.incoming.find((s) => !s.decision) || state.incoming[0]).id);
   }, [selected, state?.incoming]);
   if (!state) return <Welcome />;
-  const item =
-    state.incoming.find((s) => s.id === selected) ||
-    state.incoming.find((s) => !s.decision) ||
-    state.incoming[0];
+  const item = state.incoming.find((s) => s.id === selected) || state.incoming.find((s) => !s.decision) || state.incoming[0];
+  const unread = state.incoming.filter((s) => !s.decision).length;
+  const waitingForOpponent = state.selectedLeagueId !== state.match.leagueId;
   return (
-    <View>
-      <Title
-        kicker="SOMETHING’S A LITTLE FISHY"
-        sub="A familiar sender. A tempting message. Slow down and check the context before you make your call."
-      >
-        The plot thickens.
-      </Title>
-      <Row style={{ marginBottom: 22, flexWrap: "wrap" }}>
-        <Button
-          small
-          variant={view === "incoming" ? "primary" : "secondary"}
-          onPress={() => setView("incoming")}
-        >
-          Received · {state.incoming.length}
-        </Button>
-        <Button
-          small
-          variant={view === "outgoing" ? "primary" : "secondary"}
-          onPress={() => setView("outgoing")}
-        >
-          Your outgoing challenges
-        </Button>
-        <Badge color={C.gold}>
-          {state.mode === "demo"
-            ? "IN-APP SIMULATOR · NO REAL INBOX ACCESS"
-            : "APP RESPONSE VIEW · SEE CHANNEL TRANSPORT STATUS"}
-        </Badge>
-      </Row>
-      {view === "outgoing" ? (
-        <View style={{ gap: 16 }}>
-          {state.drafts.map((draft) => (
-            <Card key={draft.id}>
-              <Row style={{ alignItems: "flex-start" }}>
-                <View
-                  style={{
-                    backgroundColor: C.tealDark,
-                    padding: 13,
-                    borderRadius: 11,
-                  }}
-                >
-                  <Icon
-                    name={draft.channel === "email" ? "mail" : draft.channel}
-                    color={C.teal}
-                  />
-                </View>
-                <View style={{ flex: 1, gap: 8 }}>
-                  <Label>
-                    {draft.channel} / TO {state.opponent.name}
-                  </Label>
-                  <Txt style={{ fontSize: 18, fontWeight: "700" }}>
-                    {draft.content.subject}
-                  </Txt>
-                  <Txt muted style={{ fontSize: 12, lineHeight: 20 }}>
-                    {draft.channel === "email"
-                      ? draft.content.bodyText
-                      : draft.channel === "sms"
-                        ? draft.content.smsText
-                        : draft.content.voiceScript}
-                  </Txt>
-                  <Row style={{ flexWrap: "wrap" }}>
-                    <Badge>{draft.deliveryStatus.toUpperCase()}</Badge>
-                    <Badge color={C.gold}>{draft.source.toUpperCase()}</Badge>
-                    <Badge color={C.muted}>
-                      {draft.locked ? "LOCKED" : "DRAFT"}
-                    </Badge>
-                  </Row>
-                </View>
-              </Row>
-            </Card>
-          ))}
-          <Txt muted style={{ fontSize: 11, lineHeight: 19 }}>
-            Only your authored challenges appear here. Acceptance by a provider
-            does not prove delivery or count as a decision.
-          </Txt>
-        </View>
-      ) : (
-        <View style={{ flexDirection: wide ? "row" : "column", gap: 20 }}>
-          <View
-            testID="activity-main"
-            style={{ flex: wide ? 1.7 : undefined, width: "100%", gap: 18 }}
-          >
-            {state.incoming.length > 0 && (
-              <View style={{ gap: 8 }}>
-                {state.incoming.map((scenario, i) => (
-                  <Pressable
-                    key={scenario.id}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Open ${scenario.channel} challenge ${i + 1}`}
-                    onPress={() => setSelected(scenario.id)}
-                    style={{
-                      backgroundColor:
-                        item?.id === scenario.id ? C.tealDark : C.panel,
-                      borderWidth: 1,
-                      borderColor:
-                        item?.id === scenario.id ? "#4A7063" : C.border,
-                      padding: 14,
-                      borderRadius: 10,
-                      flexDirection: "row",
-                      gap: 12,
-                      alignItems: "center",
-                    }}
-                  >
-                    <Icon
-                      name={
-                        scenario.channel === "email" ? "mail" : scenario.channel
-                      }
-                      color={item?.id === scenario.id ? C.teal : C.muted}
-                      size={17}
-                    />
-                    <View style={{ flex: 1, gap: 4 }}>
-                      <Txt style={{ fontSize: 12, fontWeight: "700" }}>
-                        {scenario.content.senderDisplayName}
-                      </Txt>
-                      <Txt muted style={{ fontSize: 10 }}>
-                        {scenario.channel.toUpperCase()} ·{" "}
-                        {scenario.decision
-                          ? "Decision locked"
-                          : scenario.deliveryStatus === "unanswered"
-                            ? "Ignored · no score"
-                            : "Your call"}
-                      </Txt>
-                    </View>
-                    {scenario.decision ? (
-                      <Badge
-                        color={scenario.decision.correct ? C.teal : C.coral}
-                      >
-                        {scenario.decision.defenderPoints > 0 ? "+" : ""}
-                        {scenario.decision.defenderPoints}
-                      </Badge>
-                    ) : (
-                      <View
-                        style={{
-                          width: 6,
-                          height: 6,
-                          borderRadius: 9,
-                          backgroundColor: C.teal,
-                        }}
-                      />
-                    )}
-                  </Pressable>
-                ))}
-              </View>
-            )}
-            {item ? (
-              <Message key={item.id} scenario={item} />
-            ) : (
-              <Empty
-                title={
-                  state.match.state === "drafting"
-                    ? "The bait is still being prepared."
-                    : "Quiet… a little too quiet."
-                }
-              >
-                {state.match.state === "drafting"
-                  ? "Head to Draft to build your lineup, then start the match."
-                  : "Challenges arrive during your chosen contact window. The demo operator can release simulated deliveries for the presentation."}
-              </Empty>
-            )}
-            {state.match.state === "completed" && (
-              <Button icon="league" onPress={() => router.push("/league")}>
-                The results are in · view recap
-              </Button>
-            )}
-          </View>
-          <View
-            testID="activity-context"
-            style={{ flex: wide ? 1 : undefined, width: "100%", gap: 18 }}
-          >
-            <ActivityCard />
-            <Card>
-              <Label>MAKE A CALL. LEARN THE TELL.</Label>
-              <Txt
-                muted
-                style={{ fontSize: 12, lineHeight: 21, marginTop: 12 }}
-              >
-                Correct decision: +3{`\n`}Incorrect decision: −3{`\n`}Fool a
-                friend with your authored phish: +2{`\n`}Open, inspect, ignore,
-                or time out: 0
-              </Txt>
-              <Divider />
-              <Txt muted style={{ fontSize: 11, lineHeight: 19 }}>
-                Four of six decisions qualify you for a competitive result.
-                There is no speed bonus.
-              </Txt>
-            </Card>
-          </View>
-        </View>
-      )}
+    <View style={{ maxWidth: 780, width: "100%", alignSelf: "center", gap: 16 }}>
+      <Title sub="Read the message. Check the details. Decide whether it’s bait.">Your inbox</Title>
+      {state.incoming.length > 0 && !waitingForOpponent && <View style={{ gap: 10 }}>
+        <Row style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
+          <Txt muted style={{ fontSize: 13 }}>{unread ? `${unread} awaiting your answer` : "All messages answered"}</Txt>
+          <Button small variant="ghost" onPress={() => setShowMessages(!showMessages)}>{showMessages ? "Hide messages" : `All messages · ${state.incoming.length}`}</Button>
+        </Row>
+        {showMessages && <View style={{ gap: 6 }}>{state.incoming.map((scenario, i) => (
+          <Pressable key={scenario.id} accessibilityRole="button" accessibilityLabel={`Open ${scenario.content.senderDisplayName} message ${i + 1}`} accessibilityState={{ selected: scenario.id === item?.id }} onPress={() => { setSelected(scenario.id); setShowMessages(false); }} style={{ backgroundColor: item?.id === scenario.id ? C.tealDark : C.panel, borderWidth: 1, borderColor: C.border, padding: 14, borderRadius: 12, flexDirection: "row", alignItems: "center", gap: 12 }}>
+            <Icon name={scenario.channel === "email" ? "mail" : scenario.channel} color={C.teal} size={18} />
+            <View style={{ flex: 1, gap: 4 }}><Txt style={{ fontSize: 13, fontWeight: "700" }}>{scenario.content.senderDisplayName}</Txt><Txt muted style={{ fontSize: 11 }}>{scenario.decision ? "Answered" : scenario.deliveryStatus === "unanswered" ? "Call ignored" : "Needs an answer"}</Txt></View>
+            {scenario.decision ? <Icon name="check" size={16} color={C.muted} /> : <View style={{ width: 7, height: 7, borderRadius: 7, backgroundColor: C.teal }} />}
+          </Pressable>
+        ))}</View>}
+      </View>}
+      <View testID="activity-main" style={{ gap: 14 }}>
+        {!waitingForOpponent && item ? <Message key={item.id} scenario={item} /> : <Empty title={waitingForOpponent ? "Waiting for another player" : state.match.state === "drafting" ? "No messages yet" : "Nothing new in the water"}>
+          {waitingForOpponent ? "Invite a friend to your league to get a match." : state.match.state === "drafting" ? "Prepare your bait and start the match. Messages will appear here." : "Messages arrive during your chosen contact window. Check back when one lands."}
+        </Empty>}
+        {!waitingForOpponent && item?.decision && unread > 0 && <Button onPress={() => setSelected(state.incoming.find((s) => !s.decision)!.id)} icon="arrow">Next message</Button>}
+        {!waitingForOpponent && state.match.state === "completed" && <Button onPress={() => router.push({ pathname: "/wrapped", params: { leagueId: state.match.leagueId, matchId: state.match.id } })}>Watch your week</Button>}
+      </View>
+      <View testID="activity-context" style={{ gap: 10 }}>
+        <Button small variant="ghost" onPress={() => setShowSent(!showSent)}>{showSent ? "Hide sent bait" : `Your sent bait${waitingForOpponent ? "" : ` · ${state.drafts.length}`}`}</Button>
+        {showSent && <View style={{ gap: 10 }}>
+          {waitingForOpponent || !state.drafts.length ? <Txt muted style={{ fontSize: 13 }}>You haven’t prepared any bait for this match.</Txt> : state.drafts.map((draft) => <Card key={draft.id} style={{ padding: 16, gap: 8 }}><Row><Icon name={draft.channel === "email" ? "mail" : draft.channel} color={C.teal} /><View style={{ flex: 1, gap: 5 }}><Txt style={{ fontSize: 14, fontWeight: "700" }}>{draft.content.subject}</Txt><Txt muted style={{ fontSize: 12 }}>{draft.channel === "sms" ? "Text" : draft.channel === "voice" ? "Call" : "Email"} to {state.opponent.name} · {draft.locked ? draft.deliveryStatus : "Draft"}</Txt></View></Row></Card>)}
+          {!waitingForOpponent && <Button small variant="secondary" onPress={() => router.push("/draft")}>Open your bait</Button>}
+          <Txt muted style={{ fontSize: 11 }}>A delivery status is not an answer. Scores change when a player responds.</Txt>
+        </View>}
+        <Button small variant="ghost" onPress={() => setShowScoring(!showScoring)}>{showScoring ? "Hide scoring" : "How scoring works"}</Button>
+        {showScoring && <Card style={{ gap: 10 }}><Txt style={{ fontSize: 13, lineHeight: 23 }}>Correct answer: +3{`\n`}Incorrect answer: −3{`\n`}An opponent takes your bait: +2</Txt><Txt muted style={{ fontSize: 12, lineHeight: 20 }}>Reading, checking details, or ignoring a call earns no points. Answer at least four of six messages to qualify for the match result. There is no speed bonus.</Txt></Card>}
+      </View>
     </View>
   );
 }

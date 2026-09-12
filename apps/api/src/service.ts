@@ -29,7 +29,9 @@ import {
   type Session,
 } from "@fp/shared";
 import type { Config } from "./config.js";
-import type { Repository } from "./repository.js";
+import { MatchRepository, gamePools, type Repository } from "./repository.js";
+import { leagueProfile, leagueSummaries } from "./leagues.js";
+import { getScouting, saveScouting } from "./scouting.js";
 import { dispatch, generateContent, getReadiness } from "./providers.js";
 export class ApiError extends Error {
   constructor(
@@ -49,10 +51,52 @@ const templates: Record<Channel, string> = {
 export class GameService {
   onChange: () => void = () => undefined;
   private ticking = false;
+  private scopes = new Map<string, GameService>();
   constructor(
     public repo: Repository,
     public config: Config,
   ) {}
+  forMatch(matchId: string) {
+    let scoped = this.scopes.get(matchId);
+    if (!scoped) {
+      scoped = new GameService(new MatchRepository(this.repo, matchId), this.config);
+      scoped.onChange = () => this.onChange();
+      this.scopes.set(matchId, scoped);
+    }
+    return scoped;
+  }
+  async forSession(session: Session, requireSelectedMatch = false) {
+    const db = await this.readDb();
+    const selection = db.userSelections?.[session.userId];
+    const matchId = session.selectedMatchId ?? selection?.matchId;
+    const selectedLeagueId = session.selectedLeagueId ?? selection?.leagueId;
+    const requested = gamePools(db).find((p) => p.match.id === matchId && p.match.players.includes(session.userId));
+    const selectedLeagueMatches = gamePools(db).filter((p) => p.match.leagueId === selectedLeagueId && p.match.players.includes(session.userId)).sort((a, b) => (b.match.week ?? 0) - (a.match.week ?? 0));
+    const newlyAssigned = selectedLeagueMatches.find((p) => p.match.state !== "completed") ?? selectedLeagueMatches[0];
+    const fallback = gamePools(db).find((p) => p.match.players.includes(session.userId) && p.match.state !== "completed") ?? gamePools(db).find((p) => p.match.players.includes(session.userId));
+    const chosen = requested ?? newlyAssigned ?? fallback;
+    if (!chosen) throw new ApiError(409, "Join a league with another player to get your first matchup");
+    if (requireSelectedMatch && selectedLeagueId && chosen.match.leagueId !== selectedLeagueId)
+      throw new ApiError(409, "This league is waiting for an opponent. Invite another player before drafting or starting a matchup.");
+    return chosen.match.id === db.match.id ? this : this.forMatch(chosen.match.id);
+  }
+  async forScenario(scenarioId: string) {
+    const db = await this.readDb();
+    const pool = gamePools(db).find((p) => p.scenarios.some((s) => s.id === scenarioId));
+    return pool && pool.match.id !== db.match.id ? this.forMatch(pool.match.id) : this;
+  }
+  async tickAll() {
+    await this.tick();
+    const db = await this.readDb();
+    for (const pool of db.matchPools ?? [])
+      if (pool.match.state !== "completed" && pool.match.state !== "cancelled") await this.forMatch(pool.match.id).tick();
+  }
+  async scouting(userId: string, targetId: string) {
+    return getScouting(await this.readDb(), userId, targetId);
+  }
+  async saveScouting(userId: string, targetId: string, input: { interests: string[]; markdown: string }) {
+    return this.transact((db) => saveScouting(db, userId, targetId, input, this.now(db)));
+  }
   now(db: Database) {
     return Date.now() + db.clockOffset;
   }
@@ -358,16 +402,17 @@ export class GameService {
     const db = await this.readDb();
     const userId = session.userId;
     const member = this.member(db, userId);
-    const me = db.profiles.find((p) => p.id === userId)!;
-    const opponent = db.profiles.find(
-      (p) => p.id === db.match.players.find((p) => p !== userId),
-    )!;
+    const me = leagueProfile(db, userId, db.match.leagueId);
+    const opponent = leagueProfile(db, db.match.players.find((p) => p !== userId)!, db.match.leagueId);
     const { seed: _privateSeed, ...publicMatch } = db.match;
-    const sorted = [...db.profiles].sort(
+    const league = db.leagues?.find((l) => l.id === db.match.leagueId);
+    const sorted = db.profiles.filter((p) => db.members.some((m) => m.userId === p.id && m.leagueId === db.match.leagueId)).map((p) => ({ ...p, ...league?.standings?.[p.id] })).sort(
       (a, b) => b.leaguePoints - a.leaguePoints || a.name.localeCompare(b.name),
     );
     return {
       mode: this.config.mode,
+      selectedLeagueId: session.selectedLeagueId ?? db.userSelections?.[userId]?.leagueId ?? db.match.leagueId,
+      leagues: leagueSummaries(db, userId),
       revision: db.revision,
       now: this.now(db),
       me,
@@ -376,7 +421,7 @@ export class GameService {
       match: publicMatch,
       league: {
         id: db.match.leagueId,
-        name: "The Usual Suspects",
+        name: league?.name ?? "The Usual Suspects",
         members: sorted.map((p, i) => ({
           ...p,
           rank: i + 1,
@@ -426,7 +471,7 @@ export class GameService {
                   : senderDisplayName,
               destination: new URL(this.config.apiOrigin).host,
             },
-            actionUrl: this.actionUrl(s),
+            ...(s.encryptedToken ? { actionUrl: this.actionUrl(s) } : {}),
             ...(decision
               ? {
                   decision,
@@ -467,7 +512,6 @@ export class GameService {
       startHour: number;
       endHour: number;
       familyFriendly: boolean;
-      interests?: string[];
       displayName?: string;
       excludedThemes?: string[];
     },
@@ -504,8 +548,6 @@ export class GameService {
       };
       const profile = db.profiles.find((p) => p.id === userId)!;
       if (input.displayName) profile.name = input.displayName.trim();
-      if (input.interests)
-        profile.interests = input.interests as typeof profile.interests;
       for (const job of db.jobs.filter(
         (j) => j.type === "delivery" && ["queued", "leased"].includes(j.status),
       )) {
@@ -531,14 +573,14 @@ export class GameService {
   }
   async setPaused(userId: string, paused: boolean) {
     await this.transact((db) => {
-      const member = db.members.find((m) => m.userId === userId);
-      if (!member) throw new ApiError(404, "Membership not found");
-      member.consent.paused = paused;
-      if (paused)
-        for (const job of db.jobs.filter(
+      const members = db.members.filter((m) => m.userId === userId);
+      if (!members.length) throw new ApiError(404, "Membership not found");
+      for (const member of members) member.consent.paused = paused;
+      if (paused) for (const pool of gamePools(db))
+        for (const job of pool.jobs.filter(
           (j) => j.type === "delivery" && j.status === "queued",
         )) {
-          const scenario = db.scenarios.find((s) => s.id === job.scenarioId)!;
+          const scenario = pool.scenarios.find((s) => s.id === job.scenarioId)!;
           if (scenario.recipientId === userId) {
             job.status = "cancelled";
             scenario.deliveryStatus = "cancelled";
@@ -557,12 +599,11 @@ export class GameService {
         throw new ApiError(409, "Both players must personally accept first");
       if (!recipient.consent.channels[input.channel])
         throw new ApiError(409, "Recipient has not enabled this channel");
-      if (
-        !db.profiles
-          .find((p) => p.id === recipient.userId)!
-          .interests.includes(input.interest)
-      )
-        throw new ApiError(400, "Select a recipient-approved interest");
+      const scouting = getScouting(db, userId, recipient.userId);
+      if (!scouting.interests.includes(input.interest))
+        throw new ApiError(400, "Choose an interest before creating your message");
+      const league = db.leagues?.find((l) => l.id === db.match.leagueId);
+      if (league && !league.settings.channels[input.channel]) throw new ApiError(409, "This league has disabled that channel");
       this.enforceExclusions(
         db,
         recipient.userId,
@@ -584,11 +625,9 @@ export class GameService {
       if (scenario.locked) throw new ApiError(409, "This draft is locked");
       if (scenario.generationStatus === "pending")
         throw new ApiError(409, "Generation is already queued");
-      if (scenario.generationAttempts >= 3)
-        throw new ApiError(
-          429,
-          "Three generation attempts used for this draft",
-        );
+      const limit = league?.settings.difficulty === "rookie" ? 5 : league?.settings.difficulty === "expert" ? 1 : 3;
+      if (scenario.generationAttempts >= limit)
+        throw new ApiError(429, `${limit === 3 ? "Three" : limit} generation attempts used for this draft`);
       scenario.interest = input.interest;
       scenario.templateId = input.templateId;
       scenario.generationAttempts++;
@@ -677,31 +716,18 @@ export class GameService {
           scenario.templateId,
           scenario.content,
         );
+      const league = db.leagues?.find((l) => l.id === db.match.leagueId);
+      const enabledChannels = channels.filter((channel) => !league || league.settings.channels[channel]);
+      if (!enabledChannels.length) throw new ApiError(409, "Enable a league channel before starting");
+      if (db.scenarios.some((scenario) => !enabledChannels.includes(scenario.channel))) throw new ApiError(409, "Your draft uses a channel disabled by league rules");
       for (const recipient of db.match.players)
-        for (const channel of channels) {
+        for (let slot = 0; slot < 3; slot++) {
+          const channel = enabledChannels[slot % enabledChannels.length];
+          const required = Math.floor(slot / enabledChannels.length) + 1;
           for (const isPhishing of [true, false])
-            if (
-              !db.scenarios.some(
-                (s) =>
-                  s.recipientId === recipient &&
-                  s.channel === channel &&
-                  s.isPhishing === isPhishing,
-              )
-            ) {
-              const choice = this.platformContent(
-                db,
-                recipient,
-                channel,
-                isPhishing,
-              );
-              this.scenario(
-                db,
-                recipient,
-                channel,
-                isPhishing,
-                null,
-                choice.templateId,
-              ).content = choice.content;
+            if (db.scenarios.filter((s) => s.recipientId === recipient && s.channel === channel && s.isPhishing === isPhishing).length < required) {
+              const choice = this.platformContent(db, recipient, channel, isPhishing);
+              this.scenario(db, recipient, channel, isPhishing, null, choice.templateId).content = choice.content;
             }
         }
       let seed = db.match.seed >>> 0;
@@ -888,8 +914,9 @@ export class GameService {
       s.deliveryStatus = "cancelled";
     }
     if (!db.match.standingsApplied) {
+      const league = db.leagues?.find((l) => l.id === db.match.leagueId);
       for (const id of db.match.players) {
-        const profile = db.profiles.find((p) => p.id === id)!;
+        const profile = league?.standings?.[id] ?? db.profiles.find((p) => p.id === id)!;
         if (db.match.result === "draw") {
           profile.leaguePoints++;
           profile.draws++;
@@ -919,7 +946,7 @@ export class GameService {
     await this.transact((db) => {
       db.clockOffset += minutes * 60000;
     });
-    await this.tick();
+    await this.tickAll();
   }
   async release(recipientId?: string, all = false) {
     if (this.config.mode !== "demo")
@@ -1046,6 +1073,7 @@ export class GameService {
         interest: s.interest,
         templateId: s.templateId,
         fixture: fixtureContent(s.channel, s.templateId, true),
+        ...(s.authorId ? { scouting: { interest: s.interest, markdown: getScouting(db, s.authorId, s.recipientId).markdown } } : {}),
       });
     } catch {
       result = {
@@ -1118,6 +1146,7 @@ export class GameService {
         m.consent.adult &&
         !m.consent.paused &&
         m.consent.channels[s.channel] &&
+        (db.leagues?.find((l) => l.id === db.match.leagueId)?.settings.channels[s.channel] ?? true) &&
         s.locked &&
         !this.exclusionReason(db, s.recipientId, s.templateId, s.content);
       if (!eligible) {
@@ -1176,6 +1205,7 @@ export class GameService {
     if (
       m.consent.paused ||
       !m.consent.channels[s.channel] ||
+      !(fresh.leagues?.find((l) => l.id === fresh.match.leagueId)?.settings.channels[s.channel] ?? true) ||
       fresh.match.state !== "active" ||
       this.exclusionReason(fresh, s.recipientId, s.templateId, s.content)
     ) {
@@ -1230,9 +1260,13 @@ export class GameService {
         scenario.releasedAt = this.now(db);
     });
   }
-  async challengeToken(token: string) {
+  async challengeToken(token: string): Promise<{ scenario: Scenario; db: Database }> {
     const db = await this.readDb();
     const scenario = db.scenarios.find((s) => s.tokenHash === hash(token));
+    if (!scenario && !(this.repo instanceof MatchRepository)) {
+      const pool = db.matchPools?.find((p) => p.scenarios.some((s) => s.tokenHash === hash(token)));
+      if (pool) return this.forMatch(pool.match.id).challengeToken(token);
+    }
     if (
       !scenario ||
       scenario.tokenExpiresAt < this.now(db) ||

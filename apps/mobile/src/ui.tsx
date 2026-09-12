@@ -13,20 +13,22 @@ import {
 } from "react-native";
 import Svg, { Circle, Path } from "react-native-svg";
 export const C = {
-  bg: "#101A25",
-  panel: "#192633",
-  panelDeep: "#14212D",
-  border: "#2A3B47",
-  text: "#F5F3E8",
-  muted: "#A8B7BD",
-  teal: "#A8F0D0",
-  tealDark: "#223F3D",
-  coral: "#FF927D",
-  gold: "#F2CE83",
+  bg: "#0E1D26",
+  panel: "#162B35",
+  panelDeep: "#10222C",
+  border: "#2B424C",
+  text: "#F5F4ED",
+  muted: "#ADBDC3",
+  teal: "#96DEC5",
+  tealDark: "#23453F",
+  coral: "#F39C88",
+  gold: "#E6C78A",
   white: "#FFFFFF",
   ink: "#17262A",
 };
 export type IconName =
+  | "hook"
+  | "fish"
   | "home"
   | "draft"
   | "activity"
@@ -46,6 +48,8 @@ export type IconName =
   | "eye"
   | "logout";
 const paths: Record<IconName, string> = {
+  hook: "M15 4v11a5 5 0 0 1-10 0v-4l4 4M15 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4",
+  fish: "M3 8v8l5-3c4 6 10 3 13-1-3-4-9-7-13-1L3 8M17 10v.1",
   home: "M3 10 12 3 21 10M5 9v11h5v-6h4v6h5V9",
   draft: "m15 4 5 5M4 20l5-1L21 7a2.1 2.1 0 0 0-5-3L4 16v4",
   activity: "M4 5h16v14H4ZM4 8l8 6 8-6",
@@ -119,13 +123,15 @@ export function Txt({
   children,
   style,
   muted = false,
+  selectable = false,
 }: {
   children: React.ReactNode;
   style?: TextStyle | TextStyle[];
   muted?: boolean;
+  selectable?: boolean;
 }) {
   return (
-    <Text style={[s.text, muted && { color: C.muted }, style]}>{children}</Text>
+    <Text selectable={selectable} style={[s.text, muted && { color: C.muted }, style]}>{children}</Text>
   );
 }
 export function Label({
@@ -138,11 +144,10 @@ export function Label({
   return (
     <Txt
       style={{
-        fontSize: 10,
-        fontWeight: "800",
-        letterSpacing: 1.7,
+        fontSize: 12,
+        fontWeight: "600",
+        letterSpacing: 0.2,
         color,
-        textTransform: "uppercase",
       }}
     >
       {children}
@@ -159,9 +164,9 @@ export function Title({
   kicker?: string;
 }) {
   return (
-    <View style={{ gap: 8, marginBottom: 25 }}>
+    <View style={{ gap: 8, marginBottom: 24 }}>
       {kicker && <Label color={C.teal}>{kicker}</Label>}
-      <Txt style={{ fontSize: 32, fontWeight: "800", letterSpacing: -1.1 }}>
+      <Txt style={{ fontSize: 30, fontWeight: "700", letterSpacing: -0.7 }}>
         {children}
       </Txt>
       {sub && (
@@ -175,11 +180,13 @@ export function Title({
 export function Card({
   children,
   style,
+  testID,
 }: {
   children: React.ReactNode;
   style?: ViewStyle | ViewStyle[];
+  testID?: string;
 }) {
-  return <View style={[s.card, style]}>{children}</View>;
+  return <View testID={testID} style={[s.card, style]}>{children}</View>;
 }
 export function Row({
   children,
@@ -233,7 +240,7 @@ export function Button({
             : variant === "coral"
               ? { backgroundColor: "#392D30" }
               : { backgroundColor: "transparent" },
-        small && { paddingHorizontal: 13, minHeight: 38 },
+        small && { paddingHorizontal: 13, minHeight: 40 },
         (disabled || loading) && { opacity: 0.45 },
         pressed && { opacity: 0.75, transform: [{ scale: 0.985 }] },
         style,
@@ -244,7 +251,7 @@ export function Button({
       ) : (
         icon && <Icon name={icon} color={color} size={small ? 16 : 18} />
       )}
-      <Txt style={{ fontSize: small ? 12 : 13, fontWeight: "700", color }}>
+      <Txt style={{ fontSize: small ? 13 : 14, fontWeight: "600", color }}>
         {children}
       </Txt>
     </Pressable>
@@ -263,7 +270,7 @@ export function Badge({
     <View
       style={{
         alignSelf: "flex-start",
-        borderRadius: 6,
+        borderRadius: 4,
         paddingHorizontal: 8,
         paddingVertical: 5,
         backgroundColor: outline ? "transparent" : `${color}14`,
@@ -462,13 +469,13 @@ export const s = StyleSheet.create({
     backgroundColor: C.panel,
     borderWidth: 1,
     borderColor: C.border,
-    borderRadius: 17,
-    padding: 22,
+    borderRadius: 16,
+    padding: 20,
   },
   row: { flexDirection: "row", alignItems: "center", gap: 12 },
   button: {
     minHeight: 46,
-    borderRadius: 9,
+    borderRadius: 10,
     paddingHorizontal: 19,
     paddingVertical: 12,
     flexDirection: "row",
