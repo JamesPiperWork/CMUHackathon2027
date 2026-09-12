@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { db, getPlayer, RULES } from "@/lib/league";
 import { nowIso } from "@/lib/store";
+import { Logo, ArrowDR } from "@/components/Logo";
 
 export const dynamic = "force-dynamic";
 
@@ -9,93 +10,77 @@ export const dynamic = "force-dynamic";
 function recordClick(token: string) {
   const cast = db().casts.find((c) => c.trackingToken === token);
   if (!cast) return { found: false as const };
-
   let outcome: "scored" | "already" | "reported" = "already";
-  if (cast.status === "sent") {
-    cast.status = "clicked";
-    cast.points = RULES.POINTS_CLICK;
-    cast.resolvedAt = nowIso();
-    outcome = "scored";
-  } else if (cast.status === "reported") {
-    outcome = "reported";
-  }
-
-  return {
-    found: true as const,
-    outcome,
-    subject: cast.subject,
-    body: cast.body,
-    redFlags: cast.redFlags,
-    senderName: getPlayer(cast.senderId)?.name || "a leaguemate",
-    type: cast.type,
-  };
+  if (cast.status === "sent") { cast.status = "clicked"; cast.points = RULES.POINTS_CLICK; cast.resolvedAt = nowIso(); outcome = "scored"; }
+  else if (cast.status === "reported") outcome = "reported";
+  return { found: true as const, outcome, subject: cast.subject, body: cast.body, redFlags: cast.redFlags, senderName: getPlayer(cast.senderId)?.name || "a leaguemate", type: cast.type };
 }
 
 export default function TeachingPage({ params }: { params: { token: string } }) {
   const res = recordClick(params.token);
 
   return (
-    <main className="min-h-screen px-4 py-10">
-      <div className="mx-auto max-w-2xl">
-        <div className="rounded-2xl border border-flag/40 bg-turf/40 p-6 shadow-2xl">
-          <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-flag/20 px-3 py-1 text-sm font-semibold text-flag">
-            🎣 Gotcha — this was a training simulation
-          </div>
+    <main className="mx-auto max-w-3xl px-5 pb-20 pt-10 sm:pt-14">
+      <div className="overflow-hidden rounded-brand border border-sky bg-sky text-prussian">
+        <div className="pattern-chevron-dark border-b border-prussian/10 px-6 py-8 sm:px-10 sm:py-10">
+          <span className="inline-flex items-center gap-2 rounded-full border border-prussian/40 px-3 py-1 font-body text-[11px] font-medium uppercase tracking-eyebrow text-prussian">
+            Gotcha · training simulation
+          </span>
+          <h1 className="mt-6 font-heading text-4xl leading-[0.95] sm:text-6xl">
+            This was a Fantasy Phishing <span className="italic">training simulation.</span>
+          </h1>
+        </div>
 
-          <h1 className="text-2xl font-bold">This was a Fantasy Phishing training simulation.</h1>
-
+        <div className="px-6 py-8 sm:px-10">
           {!res.found ? (
-            <p className="mt-3 text-chalk/80">
-              We could not find this specific link, but the lesson stands: a link in a message is never
-              proof of who sent it. When something asks you to click, slow down and verify through a
-              channel you already trust.
+            <p className="text-prussian/80">
+              We could not find this specific link, but the lesson stands: a link in a message is never proof of who sent
+              it. When something asks you to click, slow down and verify through a channel you already trust.
             </p>
           ) : (
             <>
-              <p className="mt-2 text-chalk/80">
-                {res.type === "spear" ? "A spear" : "A lure"} from{" "}
-                <span className="font-semibold text-chalk">{res.senderName}</span> in your league. In the
-                real world, a click like this is exactly where an attacker wins. Here, it only costs you a
-                point — and teaches you the tells.
+              <p className="text-lg text-prussian/80">
+                {res.type === "spear" ? "A spear" : "A lure"} from <span className="font-medium text-prussian">{res.senderName}</span> in your
+                league. In the real world, a click like this is exactly where an attacker wins. Here it only costs you a
+                point, and teaches you the tells.
               </p>
 
               {res.outcome === "reported" && (
-                <p className="mt-3 rounded-lg bg-neon/10 px-3 py-2 text-neon">
-                  You already reported this one before clicking — nice defense. No points to the sender.
-                </p>
+                <div className="mt-5 rounded-2xl bg-mint px-4 py-3 text-sm">You already reported this one before clicking. Nice defense. No points to the sender.</div>
               )}
               {res.outcome === "scored" && (
-                <p className="mt-3 rounded-lg bg-blood/10 px-3 py-2 text-blood">
-                  {res.senderName} just scored +{RULES.POINTS_CLICK}. Next time, report it first.
-                </p>
+                <div className="mt-5 rounded-2xl bg-fawn px-4 py-3 text-sm">{res.senderName} just scored +{RULES.POINTS_CLICK}. Next time, report it first.</div>
               )}
 
-              <h2 className="mt-6 text-lg font-semibold text-flag">Here&apos;s what should have tipped you off:</h2>
-              <ul className="mt-3 space-y-2">
+              <h2 className="mt-10 font-heading text-3xl leading-tight">Here&apos;s what should have tipped you off:</h2>
+              <ol className="mt-5 space-y-3">
                 {res.redFlags.map((f, i) => (
-                  <li key={i} className="flex gap-3 rounded-lg bg-pitch/60 px-3 py-2">
-                    <span aria-hidden>🚩</span>
-                    <span className="text-sm text-chalk/90">{f}</span>
+                  <li key={i} className="flex gap-4 rounded-2xl bg-prussian/5 px-4 py-3">
+                    <span className="font-heading text-2xl leading-none text-payne">{String(i + 1).padStart(2, "0")}</span>
+                    <span className="text-[15px] leading-relaxed text-prussian/85">{f}</span>
                   </li>
                 ))}
-              </ul>
+              </ol>
 
-              <details className="mt-6 rounded-lg border border-chalk/15 bg-pitch/40 p-3">
-                <summary className="cursor-pointer text-sm text-chalk/70">Show the message you received</summary>
-                <div className="mt-3">
-                  <div className="text-sm font-semibold">Subject: {res.subject}</div>
-                  <pre className="mt-2 whitespace-pre-wrap break-words text-sm text-chalk/80">{res.body}</pre>
+              <details className="mt-8 rounded-2xl border border-prussian/15 p-4">
+                <summary className="cursor-pointer font-body text-sm text-prussian/70">Show the message you received</summary>
+                <div className="mt-4">
+                  <div className="font-body text-sm font-medium">Subject: {res.subject}</div>
+                  <pre className="mt-2 whitespace-pre-wrap break-words font-body text-sm text-prussian/80">{res.body}</pre>
                 </div>
               </details>
             </>
           )}
 
-          <p className="mt-6 text-xs text-chalk/50">
-            This page collected nothing about you — no form, no fields, no credentials. It exists only to teach.
+          <p className="mt-8 font-body text-xs text-prussian/50">
+            This page collected nothing about you. No form, no fields, no credentials. It exists only to teach.
           </p>
-          <div className="mt-6 flex gap-4 text-sm">
-            <Link href="/week" className="text-neon underline">Live scoreboard</Link>
-            <Link href="/inbox" className="text-chalk/70 underline">Back to inbox</Link>
+          <div className="mt-8 flex flex-wrap items-center justify-between gap-4 border-t border-prussian/10 pt-6">
+            <div className="flex gap-3">
+              <Link href="/week" className="inline-flex items-center gap-2 rounded-full bg-prussian px-5 py-2.5 font-body text-sm font-medium text-sky hover:bg-indigo">Live scoreboard <ArrowDR className="h-4 w-4" /></Link>
+              <Link href="/inbox" className="inline-flex items-center rounded-full border border-prussian/40 px-5 py-2.5 font-body text-sm font-medium text-prussian">Back to inbox</Link>
+            </div>
+            <Logo tone="prussian" />
           </div>
         </div>
       </div>

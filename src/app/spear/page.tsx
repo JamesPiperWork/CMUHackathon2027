@@ -1,113 +1,96 @@
 "use client";
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, getActing, type ActingPlayer } from "@/lib/client";
+import { Page, Eyebrow, Heading, Card, Button, ButtonLink, Notice, Rule } from "@/components/ui";
+import { ArrowDR } from "@/components/Logo";
 
 export default function Spear() {
   const router = useRouter();
   const [acting, setActing] = useState<ActingPlayer | null>(null);
   const [opponent, setOpponent] = useState<any>(null);
   const [available, setAvailable] = useState(true);
-
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("Write your spear here.\n\nInclude your call to action as {{TRACKING_LINK}} and the server will turn it into a tracked link.");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [sent, setSent] = useState<any>(null);
+  const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [sent, setSent] = useState<any>(null);
 
   useEffect(() => {
     const a = getActing();
     if (!a) { router.push("/"); return; }
     setActing(a);
-    api(`/api/state?playerId=${a.id}`).then((res) => {
-      if (!res.ok) return;
-      setOpponent(res.opponent);
-      setAvailable(res.shots.spearAvailable);
-    });
+    api(`/api/state?playerId=${a.id}`).then((res) => { if (!res.ok) return; setOpponent(res.opponent); setAvailable(res.shots.spearAvailable); });
   }, [router]);
 
   async function draftWithGemini() {
     if (!acting) return;
     setBusy(true); setError("");
     const at = opponent?.attributes || {};
-    const res = await api("/api/casts/generate", {
-      method: "POST",
-      body: JSON.stringify({
-        senderId: acting.id,
-        attributes: { hobbies: at.hobbies || [], sportsTeams: at.sportsTeams || [], hometown: at.hometown || "", employer: at.employer || "", pretext: "high-stakes spear" },
-      }),
-    });
+    const res = await api("/api/casts/generate", { method: "POST", body: JSON.stringify({ senderId: acting.id, attributes: { hobbies: at.hobbies || [], sportsTeams: at.sportsTeams || [], hometown: at.hometown || "", employer: at.employer || "", pretext: "high-stakes spear" } }) });
     setBusy(false);
-    if (res.ok) { setSubject(res.subject); setBody(res.body); }
-    else setError(res.error || "draft failed");
+    if (res.ok) { setSubject(res.subject); setBody(res.body); } else setError(res.error || "draft failed");
   }
 
   async function send() {
     if (!acting) return;
     setBusy(true); setError("");
-    const res = await api("/api/casts/send", {
-      method: "POST",
-      body: JSON.stringify({ senderId: acting.id, subject, body, type: "spear" }),
-    });
+    const res = await api("/api/casts/send", { method: "POST", body: JSON.stringify({ senderId: acting.id, subject, body, type: "spear" }) });
     setBusy(false);
-    if (res.ok) setSent(res);
-    else setError(res.error || "send failed");
+    if (res.ok) setSent(res); else setError(res.error || "send failed");
   }
 
   if (sent) {
     return (
-      <main className="mx-auto max-w-2xl px-4 py-10">
-        <div className="rounded-2xl border border-flag/50 bg-turf/40 p-6">
-          <h1 className="text-2xl font-bold text-flag">Spear thrown 🪝</h1>
-          <p className="mt-2 text-chalk/80">
-            Your once-per-season spear is in {sent.to?.name}&apos;s in-app Inbox as a third shot this
-            week (it did not consume a cast slot). Nothing was sent externally.
+      <Page width="max-w-3xl">
+        <Card tone="icterine" className="p-8 sm:p-10">
+          <Eyebrow className="border-prussian/30 text-prussian/70">Spear · third shot</Eyebrow>
+          <Heading className="mt-4 text-prussian">Spear thrown.</Heading>
+          <p className="mt-4 max-w-xl text-prussian/80">
+            Your once-per-season spear is in {sent.to?.name}&apos;s in-app inbox as a third shot this week. It did not
+            consume a cast slot. Nothing was sent externally.
           </p>
-          <div className="mt-3 rounded-lg bg-pitch/60 p-3 text-xs text-chalk/60 break-all">Tracking link: {sent.trackingUrl}</div>
-          <div className="mt-5 flex gap-3">
-            <Link href="/week" className="rounded-lg bg-flag px-4 py-2 font-semibold text-pitch">Live Scoreboard →</Link>
-            <Link href="/play" className="rounded-lg border border-chalk/20 px-4 py-2">Back to My Week</Link>
+          <div className="mt-6 break-all rounded-2xl bg-prussian/10 px-4 py-3 font-body text-xs text-prussian/70">Tracking link · {sent.trackingUrl}</div>
+          <div className="mt-8 flex flex-wrap gap-3">
+            <ButtonLink href="/week" variant="sky" className="!bg-prussian !text-sky hover:!bg-indigo">Live scoreboard <ArrowDR className="h-4 w-4" /></ButtonLink>
+            <ButtonLink href="/play" variant="outline" className="!border-prussian/40 !text-prussian">Back to my week</ButtonLink>
           </div>
-        </div>
-      </main>
+        </Card>
+      </Page>
     );
   }
 
   return (
-    <main className="mx-auto max-w-2xl px-4 py-10">
-      <div className="mb-4 flex items-baseline justify-between">
-        <h1 className="text-2xl font-bold">Spear → {opponent?.name ?? "…"}</h1>
-        <span className="text-sm text-flag">{available ? "1 spear / season" : "already used"}</span>
-      </div>
-
-      {!available && (
-        <div className="mb-4 rounded-lg border border-blood/50 bg-blood/10 px-3 py-2 text-sm text-blood">
-          You have already used your season spear. The server will reject another.
+    <Page width="max-w-3xl">
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <Eyebrow tone="icterine">Spear → {opponent?.name ?? "…"}</Eyebrow>
+          <Heading className="mt-4">Hand-draft.</Heading>
         </div>
-      )}
-      {error && <div className="mb-4 rounded-lg border border-blood/50 bg-blood/10 px-3 py-2 text-sm text-blood">{error}</div>}
-
-      <div className="space-y-4 rounded-2xl border border-chalk/10 bg-pitch/50 p-5">
-        <p className="text-xs text-chalk/50">
-          The spear is hand-drafted — you write it yourself. Optionally seed the editor with a Gemini
-          draft, then edit. Fired as a third shot; scores +100 on click.
-        </p>
-        <button onClick={draftWithGemini} disabled={busy} className="rounded-lg border border-neon/50 px-4 py-2 text-sm text-neon disabled:opacity-50">
-          {busy ? "…" : "✨ Draft with Gemini (optional)"}
-        </button>
-        <label className="block text-sm">
-          <span className="text-chalk/60">Subject</span>
-          <input value={subject} onChange={(e) => setSubject(e.target.value)} className="mt-1 w-full rounded-lg border border-chalk/15 bg-pitch px-3 py-2" />
-        </label>
-        <label className="block text-sm">
-          <span className="text-chalk/60">Body</span>
-          <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={12} className="mt-1 w-full rounded-lg border border-chalk/15 bg-pitch px-3 py-2 font-mono text-sm" />
-        </label>
-        <button onClick={send} disabled={busy || !available || !subject} className="w-full rounded-lg bg-flag px-4 py-2 font-semibold text-pitch disabled:opacity-50">
-          {busy ? "Throwing…" : `Throw spear at ${opponent?.name ?? "opponent"}`}
-        </button>
+        <span className="font-body text-xs uppercase tracking-eyebrow text-icterine">{available ? "1 per season" : "used"}</span>
       </div>
-    </main>
+
+      <div className="mt-6 space-y-3">
+        {!available && <Notice tone="fawn">You have already used your season spear. The server will reject another.</Notice>}
+        {error && <Notice tone="fawn">{error}</Notice>}
+      </div>
+
+      <Card className="mt-6 space-y-5">
+        <p className="text-sm text-sky/60">
+          The spear is yours to write. Optionally seed the editor with a Gemini draft, then edit. Fired as a third shot; +100 on click.
+        </p>
+        <Button onClick={draftWithGemini} disabled={busy} variant="outline">{busy ? "…" : "Draft with Gemini · optional"}</Button>
+        <Rule />
+        <label className="block">
+          <span className="font-body text-[11px] font-medium uppercase tracking-eyebrow text-sky/60">Subject</span>
+          <input value={subject} onChange={(e) => setSubject(e.target.value)} className="input mt-2" />
+        </label>
+        <label className="block">
+          <span className="font-body text-[11px] font-medium uppercase tracking-eyebrow text-sky/60">Body</span>
+          <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={12} className="input mt-2 font-mono text-sm leading-relaxed" />
+        </label>
+        <Button onClick={send} disabled={busy || !available || !subject} variant="accent" className="w-full">
+          {busy ? "Throwing…" : `Throw spear at ${opponent?.name ?? "opponent"}`} <ArrowDR className="h-4 w-4" />
+        </Button>
+      </Card>
+    </Page>
   );
 }

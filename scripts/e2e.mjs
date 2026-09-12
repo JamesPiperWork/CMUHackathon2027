@@ -107,7 +107,7 @@ try {
   ok(scoreOf(before, alice.id) === 0 && scoreOf(before, bob.id) === 0, "before click: Alice 0 – Bob 0");
   const page = await html(`/c/${token1}`);
   ok(page.status === 200 && /training simulation/i.test(page.text), "teaching page renders 'training simulation'");
-  ok(/tipped you off/i.test(page.text) && /🚩/.test(page.text), "teaching page lists red flags");
+  ok(/tipped you off/i.test(page.text) && /hover before you click/i.test(page.text), "teaching page lists red flags");
   ok(!/<form|<input/i.test(page.text), "teaching page has no form/inputs (collects nothing)");
   const after = await j(`/api/matchups?leagueId=${leagueId}`);
   ok(scoreOf(after, alice.id) === 100 && scoreOf(after, bob.id) === 0, "after click: /week shows Alice 100 – Bob 0");

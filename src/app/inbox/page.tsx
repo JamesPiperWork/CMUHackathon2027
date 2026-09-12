@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, getActing, type ActingPlayer } from "@/lib/client";
+import { Page, Eyebrow, Heading, Card, Button, Notice, Rule } from "@/components/ui";
 
 // The defender's in-app Inbox. Training emails land here (nothing is sent externally).
 // Open one, then either click its link (→ teaching page, sender scores) or REPORT it
@@ -15,13 +16,12 @@ export default function Inbox() {
 
   async function load(a: ActingPlayer) {
     const res = await api(`/api/inbox?playerId=${a.id}`);
-    if (res.ok) setData(res);
+    if (res.ok) { setData(res); setOpenId((cur) => cur ?? res.messages?.[0]?.id ?? null); }
   }
   useEffect(() => {
     const a = getActing();
     if (!a) { router.push("/"); return; }
-    setActing(a);
-    load(a);
+    setActing(a); load(a);
     const t = setInterval(() => load(a), 2000);
     return () => clearInterval(t);
   }, [router]);
@@ -30,7 +30,7 @@ export default function Inbox() {
     if (!acting) return;
     setMsg("");
     const res = await api(`/api/casts/${id}/report`, { method: "POST", body: JSON.stringify({ playerId: acting.id }) });
-    if (res.ok) { setMsg(res.alreadyReported ? "Already reported." : `🚩 Reported! +${res.reporterPoints} defense points. The sender scores 0.`); load(acting); }
+    if (res.ok) { setMsg(res.alreadyReported ? "Already reported." : `Reported. +${res.reporterPoints} defense points. The sender scores 0.`); load(acting); }
     else setMsg(res.error || "report failed");
   }
 
@@ -38,76 +38,71 @@ export default function Inbox() {
   const open = messages.find((m) => m.id === openId);
 
   return (
-    <main className="mx-auto max-w-4xl px-4 py-10">
-      <div className="flex items-baseline justify-between">
-        <h1 className="text-2xl font-bold">Inbox {data?.week ? <span className="text-chalk/50">· Week {data.week}</span> : null}</h1>
-        <span className="text-sm text-chalk/50">{data?.to}</span>
+    <Page width="max-w-6xl">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <Eyebrow tone="fawn">Defense · Week {data?.week ?? "…"}</Eyebrow>
+          <Heading className="mt-4">Inbox</Heading>
+        </div>
+        <span className="font-body text-xs text-sky/40">{data?.to}</span>
       </div>
-      <p className="mt-1 text-sm text-chalk/50">
-        Your defense. Spot the training lure and <span className="text-neon">report it before you click</span>.
-      </p>
-      {msg && <div className="mt-3 rounded-lg bg-neon/10 px-3 py-2 text-sm text-neon">{msg}</div>}
+      <p className="mt-3 max-w-xl text-sm text-sky/60">Spot the training lure and <span className="text-cyan">report it before you click</span>.</p>
+      {msg && <div className="mt-5"><Notice tone="mint">{msg}</Notice></div>}
 
-      <div className="mt-5 grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+      <div className="mt-8 grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]">
         <div className="space-y-2">
           {messages.map((m) => (
             <button
               key={m.id}
               onClick={() => setOpenId(m.id)}
-              className={`w-full rounded-xl border p-3 text-left ${openId === m.id ? "border-neon bg-neon/10" : "border-chalk/10 bg-pitch/50 hover:border-chalk/30"}`}
+              className={`w-full rounded-2xl border p-4 text-left transition ${openId === m.id ? "border-cyan bg-cyan/10" : "border-sky/10 bg-indigo/60 hover:border-sky/30"}`}
             >
-              <div className="flex items-center justify-between gap-2">
-                <div className="truncate font-semibold">{m.subject}</div>
+              <div className="flex items-center justify-between gap-3">
+                <div className="truncate font-body text-sm font-medium">{m.subject}</div>
                 <Status s={m.status} />
               </div>
-              <div className="mt-0.5 text-xs text-chalk/40">unknown sender · {new Date(m.sentAt).toLocaleTimeString()}</div>
+              <div className="mt-1 font-body text-xs text-sky/40">Unknown sender · {new Date(m.sentAt).toLocaleTimeString()}</div>
             </button>
           ))}
           {messages.length === 0 && (
-            <p className="rounded-xl border border-dashed border-chalk/15 p-4 text-sm text-chalk/50">
+            <div className="rounded-2xl border border-dashed border-sky/15 p-5 text-sm text-sky/50">
               Inbox empty. Switch to your opponent on the home page and send a cast to see it here.
-            </p>
+            </div>
           )}
         </div>
 
-        <div className="rounded-2xl border border-chalk/10 bg-pitch/50 p-5">
+        <Card tone="sky" className="min-h-[18rem]">
           {!open ? (
-            <p className="text-sm text-chalk/40">Select a message to read it.</p>
+            <p className="text-sm text-prussian/50">Select a message to read it.</p>
           ) : (
             <>
-              <div className="text-xs text-chalk/40">From: unknown sender</div>
-              <div className="mt-1 text-lg font-semibold">{open.subject}</div>
-              <div className="mt-4 whitespace-pre-wrap break-words text-sm text-chalk/85">{linkify(open.body)}</div>
-              <div className="mt-6 flex flex-wrap gap-3 border-t border-chalk/10 pt-4">
+              <div className="font-body text-[11px] font-medium uppercase tracking-eyebrow text-prussian/50">From · unknown sender</div>
+              <div className="mt-2 font-heading text-3xl leading-tight text-prussian">{open.subject}</div>
+              <Rule className="my-5 !border-prussian/15" />
+              <div className="whitespace-pre-wrap break-words font-body text-[15px] leading-relaxed text-prussian/85">{linkify(open.body)}</div>
+              <div className="mt-8 flex flex-wrap items-center gap-3 border-t border-prussian/15 pt-5">
                 {open.reportable ? (
-                  <button onClick={() => report(open.id)} className="rounded-lg bg-blood/80 px-4 py-2 text-sm font-semibold text-white">
-                    🚩 Report as phish
-                  </button>
+                  <Button onClick={() => report(open.id)} variant="warm">Report as phish</Button>
                 ) : (
-                  <span className="text-sm text-chalk/50">{open.status === "reported" ? "You reported this. ✓" : "You clicked this. See the teaching page."}</span>
+                  <span className="font-body text-sm text-prussian/60">{open.status === "reported" ? "You reported this one." : "You clicked this. See the teaching page."}</span>
                 )}
               </div>
             </>
           )}
-        </div>
+        </Card>
       </div>
-    </main>
+    </Page>
   );
 }
 
 function Status({ s }: { s: string }) {
-  const cls = s === "reported" ? "text-neon" : s === "clicked" ? "text-blood" : "text-chalk/50";
-  return <span className={`shrink-0 text-xs ${cls}`}>{s === "sent" ? "unread" : s}</span>;
+  const cls = s === "reported" ? "text-mint" : s === "clicked" ? "text-fawn" : "text-sky/50";
+  return <span className={`shrink-0 font-body text-[11px] uppercase tracking-eyebrow ${cls}`}>{s === "sent" ? "unread" : s}</span>;
 }
 
 // Render URLs as real anchors — clicking one is "the click" and opens the teaching page.
 function linkify(text: string) {
-  const parts = text.split(/(https?:\/\/[^\s]+)/g);
-  return parts.map((p, i) =>
-    /^https?:\/\//.test(p) ? (
-      <a key={i} href={p} className="text-blue-400 underline break-all">{p}</a>
-    ) : (
-      <span key={i}>{p}</span>
-    )
+  return text.split(/(https?:\/\/[^\s]+)/g).map((p, i) =>
+    /^https?:\/\//.test(p) ? <a key={i} href={p} className="break-all text-indigo underline decoration-cyan decoration-2 underline-offset-2">{p}</a> : <span key={i}>{p}</span>
   );
 }

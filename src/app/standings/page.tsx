@@ -1,57 +1,61 @@
 "use client";
 import { useEffect, useState } from "react";
 import { api, getActing } from "@/lib/client";
+import { Page, Eyebrow, Heading } from "@/components/ui";
 
 export default function Standings() {
   const [rows, setRows] = useState<any[]>([]);
-  const [mine, setMine] = useState<string>("");
+  const [mine, setMine] = useState("");
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    const a = getActing();
-    setMine(a?.id || "");
+    const a = getActing(); setMine(a?.id || "");
     if (!a?.leagueId) { setLoaded(true); return; }
-    api(`/api/standings?leagueId=${a.leagueId}`).then((res) => {
-      if (res.ok) setRows(res.standings);
-      setLoaded(true);
-    });
+    api(`/api/standings?leagueId=${a.leagueId}`).then((res) => { if (res.ok) setRows(res.standings); setLoaded(true); });
   }, []);
 
-  return (
-    <main className="mx-auto max-w-2xl px-4 py-10">
-      <h1 className="text-2xl font-bold">Standings</h1>
-      <p className="mt-1 text-sm text-chalk/50">Derived from final matchups · W-L-T, tiebreak = total season points.</p>
+  const noResults = loaded && rows.length > 0 && rows.every((r) => r.wins + r.losses + r.ties === 0);
 
-      <div className="mt-5 overflow-hidden rounded-2xl border border-chalk/10">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-turf/40 text-chalk/60">
-            <tr>
-              <th className="px-4 py-3">#</th>
-              <th className="px-4 py-3">Player</th>
-              <th className="px-4 py-3 text-center">W</th>
-              <th className="px-4 py-3 text-center">L</th>
-              <th className="px-4 py-3 text-center">T</th>
-              <th className="px-4 py-3 text-right">Pts</th>
+  return (
+    <Page width="max-w-3xl">
+      <Eyebrow tone="sky">W-L-T · tiebreak season points</Eyebrow>
+      <Heading className="mt-4">Standings</Heading>
+      <p className="mt-3 text-sm text-sky/60">Derived from final matchups only.</p>
+
+      <div className="mt-8 overflow-hidden rounded-brand border border-sky/10 bg-indigo/70">
+        <table className="w-full text-left">
+          <thead>
+            <tr className="border-b border-sky/10 font-body text-[11px] font-medium uppercase tracking-eyebrow text-sky/50">
+              <th className="px-5 py-4 font-medium">#</th>
+              <th className="px-5 py-4 font-medium">Player</th>
+              <th className="px-3 py-4 text-center font-medium">W</th>
+              <th className="px-3 py-4 text-center font-medium">L</th>
+              <th className="px-3 py-4 text-center font-medium">T</th>
+              <th className="px-5 py-4 text-right font-medium">Pts</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, i) => (
-              <tr key={r.id} className={`border-t border-chalk/10 ${r.id === mine ? "bg-neon/10" : ""}`}>
-                <td className="px-4 py-3 text-chalk/40">{i + 1}</td>
-                <td className="px-4 py-3 font-semibold">{r.name}{r.id === mine && <span className="ml-2 rounded bg-neon/20 px-1.5 text-[10px] text-neon">you</span>}</td>
-                <td className="px-4 py-3 text-center">{r.wins}</td>
-                <td className="px-4 py-3 text-center">{r.losses}</td>
-                <td className="px-4 py-3 text-center">{r.ties}</td>
-                <td className="px-4 py-3 text-right font-black tabular-nums">{r.points}</td>
-              </tr>
-            ))}
+            {rows.map((r, i) => {
+              const you = r.id === mine;
+              return (
+                <tr key={r.id} className={`border-b border-sky/10 last:border-0 ${you ? "bg-cyan text-prussian" : ""}`}>
+                  <td className={`px-5 py-4 font-body text-sm ${you ? "text-prussian/60" : "text-sky/40"}`}>{i + 1}</td>
+                  <td className="px-5 py-4">
+                    <span className="font-heading text-2xl leading-none">{r.name}</span>
+                    {you && <span className="ml-3 rounded-full border border-prussian/30 px-2 py-0.5 font-body text-[10px] uppercase tracking-eyebrow">you</span>}
+                  </td>
+                  <td className="px-3 py-4 text-center font-body tabular-nums">{r.wins}</td>
+                  <td className="px-3 py-4 text-center font-body tabular-nums">{r.losses}</td>
+                  <td className="px-3 py-4 text-center font-body tabular-nums">{r.ties}</td>
+                  <td className="px-5 py-4 text-right font-heading text-2xl tabular-nums">{r.points}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
-      {loaded && rows.length === 0 && <p className="mt-6 text-chalk/50">No standings yet. Seed a league first.</p>}
-      {loaded && rows.length > 0 && rows.every((r) => r.wins + r.losses + r.ties === 0) && (
-        <p className="mt-4 text-sm text-chalk/50">All zeros until a week is closed. Close Week 1 on the Scoreboard.</p>
-      )}
-    </main>
+      {loaded && rows.length === 0 && <p className="mt-6 text-sky/50">No standings yet. Seed a league first.</p>}
+      {noResults && <p className="mt-5 text-sm text-sky/50">All zeros until a week is closed. Close Week 1 on the Scoreboard.</p>}
+    </Page>
   );
 }

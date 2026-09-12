@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { api, getActing, type ActingPlayer } from "@/lib/client";
+import { Page, Eyebrow, Heading, Card } from "@/components/ui";
 
 // Season "Wrapped" — a lightweight summary derived from standings. Playoffs / arcade
 // postseason and time-decay bonus are TODO stubs by design (not implemented).
@@ -10,8 +11,7 @@ export default function Wrapped() {
   const [week, setWeek] = useState<number | null>(null);
 
   useEffect(() => {
-    const a = getActing();
-    setActing(a);
+    const a = getActing(); setActing(a);
     if (!a?.leagueId) return;
     api(`/api/standings?leagueId=${a.leagueId}`).then((r) => r.ok && setRows(r.standings));
     api(`/api/state?playerId=${a.id}`).then((r) => r.ok && setWeek(r.week));
@@ -22,30 +22,37 @@ export default function Wrapped() {
   const totalPts = rows.reduce((s, r) => s + r.points, 0);
 
   return (
-    <main className="mx-auto max-w-2xl px-4 py-10">
-      <h1 className="text-3xl font-bold">Season Wrapped 🎁</h1>
-      <p className="mt-1 text-sm text-chalk/50">Season 1 · through week {week ? week - 1 : "—"}</p>
+    <Page width="max-w-4xl">
+      <Eyebrow tone="icterine">Season 1 · through week {week ? week - 1 : "—"}</Eyebrow>
+      <Heading size="xl" className="mt-4">Wrapped</Heading>
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-2">
-        <Card title="League leader" big={leader?.name ?? "—"} sub={leader ? `${leader.wins}-${leader.losses}-${leader.ties} · ${leader.points} pts` : ""} />
-        <Card title="Your record" big={me ? `${me.wins}-${me.losses}-${me.ties}` : "—"} sub={me ? `${me.points} season points` : ""} />
-        <Card title="Points scored league-wide" big={String(totalPts)} sub="offense + defense, all final weeks" />
-        <Card title="Playoffs" big="TODO" sub="Arcade postseason after week 10 — stub only, by design." />
+      <div className="mt-10 grid gap-4 sm:grid-cols-2">
+        <Card tone="cyan">
+          <Label dark>League leader</Label>
+          <div className="mt-3 font-heading text-6xl leading-none">{leader?.name ?? "—"}</div>
+          <div className="mt-2 font-body text-sm text-prussian/70">{leader ? `${leader.wins}-${leader.losses}-${leader.ties} · ${leader.points} pts` : ""}</div>
+        </Card>
+        <Card>
+          <Label>Your record</Label>
+          <div className="mt-3 font-heading text-6xl leading-none">{me ? `${me.wins}-${me.losses}-${me.ties}` : "—"}</div>
+          <div className="mt-2 font-body text-sm text-sky/60">{me ? `${me.points} season points` : ""}</div>
+        </Card>
+        <Card tone="payne">
+          <Label>Points scored league-wide</Label>
+          <div className="mt-3 font-heading text-6xl leading-none">{totalPts}</div>
+          <div className="mt-2 font-body text-sm text-sky/60">offense + defense, all final weeks</div>
+        </Card>
+        <Card tone="fawn">
+          <Label dark>Playoffs</Label>
+          <div className="mt-3 font-heading text-6xl leading-none">TODO</div>
+          <div className="mt-2 font-body text-sm text-prussian/70">Arcade postseason after week 10 · stub by design</div>
+        </Card>
       </div>
-
-      <p className="mt-8 text-xs text-chalk/40">
-        Wrapped is derived from final matchups only. Time-decay bonus is a TODO stub (not implemented).
-      </p>
-    </main>
+      <p className="mt-8 font-body text-xs text-sky/40">Derived from final matchups only. Time-decay bonus is a TODO stub (not implemented).</p>
+    </Page>
   );
 }
 
-function Card({ title, big, sub }: { title: string; big: string; sub: string }) {
-  return (
-    <div className="rounded-2xl border border-chalk/10 bg-turf/30 p-5">
-      <div className="text-xs uppercase tracking-wide text-chalk/50">{title}</div>
-      <div className="mt-2 text-2xl font-black text-neon">{big}</div>
-      <div className="mt-1 text-sm text-chalk/60">{sub}</div>
-    </div>
-  );
+function Label({ children, dark }: { children: React.ReactNode; dark?: boolean }) {
+  return <div className={`font-body text-[11px] font-medium uppercase tracking-eyebrow ${dark ? "text-prussian/60" : "text-sky/50"}`}>{children}</div>;
 }

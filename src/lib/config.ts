@@ -1,6 +1,6 @@
 // Central config. The Gemini model name lives here (from env) and nowhere else —
 // one-line swappable per the build spec.
-export const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-1.5-flash";
+export const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
 
 // Optional. If unset, tracking links are built from the incoming request's origin,
 // which makes the app work on Vercel preview/prod URLs with zero configuration.

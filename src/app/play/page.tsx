@@ -1,8 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, getActing, type ActingPlayer } from "@/lib/client";
+import { Page, Eyebrow, Heading, Card, ButtonLink, Stat, Rule } from "@/components/ui";
+import { ArrowDR } from "@/components/Logo";
 
 export default function Play() {
   const router = useRouter();
@@ -14,81 +15,63 @@ export default function Play() {
     const a = getActing();
     if (!a) { router.push("/"); return; }
     setActingState(a);
-    api(`/api/state?playerId=${a.id}`).then((res) => {
-      setState(res.ok ? res : null);
-      setLoading(false);
-    });
+    api(`/api/state?playerId=${a.id}`).then((res) => { setState(res.ok ? res : null); setLoading(false); });
   }, [router]);
 
-  if (loading) return <main className="mx-auto max-w-3xl px-4 py-10 text-chalk/50">Loading…</main>;
-  if (!state) return <main className="mx-auto max-w-3xl px-4 py-10 text-blood">Could not load your week. Re-seed on the home page.</main>;
+  if (loading) return <Page><p className="text-sky/50">Loading…</p></Page>;
+  if (!state) return <Page><p className="text-fawn">Could not load your week. Re-seed on the home page.</p></Page>;
 
   const { week, opponent, shots } = state;
   const noCasts = shots.castsLeft <= 0;
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-10">
-      <div className="flex items-baseline justify-between">
-        <h1 className="text-2xl font-bold">Week {week}</h1>
-        <span className="text-sm text-chalk/60">Playing as {acting?.name}</span>
-      </div>
+    <Page>
+      <Eyebrow>Week {week} · Regular season</Eyebrow>
+      <Heading className="mt-4">My Week</Heading>
 
-      <div className="mt-4 rounded-2xl border border-chalk/10 bg-turf/30 p-6">
-        <div className="text-sm uppercase tracking-wide text-chalk/50">Your matchup this week</div>
-        <div className="mt-3 flex items-center justify-between">
-          <div className="text-center">
-            <div className="text-xl font-bold text-neon">{acting?.name}</div>
-            <div className="text-xs text-chalk/50">you (offense)</div>
+      {/* Matchup */}
+      <Card className="mt-8 overflow-hidden p-0">
+        <div className="pattern-lines grid items-center gap-6 px-6 py-10 sm:grid-cols-[1fr_auto_1fr] sm:px-10">
+          <div>
+            <div className="font-body text-[11px] font-medium uppercase tracking-eyebrow text-cyan">You · offense</div>
+            <div className="mt-2 font-heading text-5xl leading-none text-sky sm:text-6xl">{acting?.name}</div>
           </div>
-          <div className="text-2xl font-black text-chalk/40">VS</div>
-          <div className="text-center">
-            <div className="text-xl font-bold">{opponent?.name ?? "—"}</div>
-            <div className="text-xs text-chalk/50">target</div>
+          <div className="font-heading text-3xl italic text-sky/30">vs</div>
+          <div className="sm:text-right">
+            <div className="font-body text-[11px] font-medium uppercase tracking-eyebrow text-fawn">Target · defense</div>
+            <div className="mt-2 font-heading text-5xl leading-none text-sky sm:text-6xl">{opponent?.name ?? "—"}</div>
           </div>
         </div>
+      </Card>
+
+      {/* Shots */}
+      <div className="mt-6 grid gap-4 sm:grid-cols-[1fr_1fr]">
+        <Card>
+          <div className="grid grid-cols-2 gap-6">
+            <Stat label="Casts left" value={shots.castsLeft} sub={`${shots.castsUsed} of ${shots.capPerWeek} used`} tone="cyan" />
+            <Stat label="Spear" value={shots.spearAvailable ? "1" : "0"} sub={shots.spearAvailable ? "available this season" : "already used"} tone="icterine" />
+          </div>
+          <Rule className="my-5" />
+          <p className="text-xs text-sky/50">Caps are enforced by the server at send time, not just by these buttons.</p>
+        </Card>
+        <Card tone="payne" className="flex flex-col justify-between gap-4">
+          <div>
+            <div className="font-body text-[11px] font-medium uppercase tracking-eyebrow text-sky/60">Take a shot</div>
+            <p className="mt-2 font-heading text-2xl leading-tight">
+              You can only ever target {opponent?.name ?? "your opponent"}.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <ButtonLink href="/cast" variant="primary" disabled={noCasts}>New Cast <ArrowDR className="h-4 w-4" /></ButtonLink>
+            <ButtonLink href="/spear" variant="accent" disabled={!shots.spearAvailable}>Use Spear</ButtonLink>
+          </div>
+        </Card>
       </div>
 
-      <div className="mt-4 rounded-2xl border border-chalk/10 bg-pitch/50 p-6">
-        <div className="text-sm font-semibold text-flag">
-          🎯 {shots.castsLeft} cast{shots.castsLeft === 1 ? "" : "s"} left ·{" "}
-          {shots.spearAvailable ? "spear available" : "spear used"}
-        </div>
-        <div className="mt-1 text-xs text-chalk/50">
-          {shots.castsUsed}/{shots.capPerWeek} casts used this week. The server enforces these caps.
-        </div>
-
-        <div className="mt-5 flex flex-wrap gap-3">
-          <Link
-            href={noCasts ? "#" : "/cast"}
-            aria-disabled={noCasts}
-            className={`rounded-lg px-4 py-2 font-semibold ${
-              noCasts ? "cursor-not-allowed bg-chalk/10 text-chalk/40" : "bg-neon text-pitch hover:brightness-110"
-            }`}
-          >
-            New Cast
-          </Link>
-          <Link
-            href={shots.spearAvailable ? "/spear" : "#"}
-            aria-disabled={!shots.spearAvailable}
-            className={`rounded-lg px-4 py-2 font-semibold ${
-              shots.spearAvailable ? "bg-flag text-pitch hover:brightness-110" : "cursor-not-allowed bg-chalk/10 text-chalk/40"
-            }`}
-          >
-            Use Spear
-          </Link>
-          <Link href="/week" className="rounded-lg border border-chalk/20 px-4 py-2 text-chalk/80">
-            Live Scoreboard →
-          </Link>
-          <Link href="/inbox" className="rounded-lg border border-chalk/20 px-4 py-2 text-chalk/80">
-            My Inbox (defense)
-          </Link>
-        </div>
+      <div className="mt-6 flex flex-wrap gap-3">
+        <ButtonLink href="/week" variant="outline">Live scoreboard</ButtonLink>
+        <ButtonLink href="/inbox" variant="outline">My inbox · defense</ButtonLink>
       </div>
-
-      <p className="mt-6 text-xs text-chalk/40">
-        You can only ever target {opponent?.name ?? "your scheduled opponent"} — the server resolves
-        your target from the schedule. There is no way to type an address.
-      </p>
-    </main>
+    </Page>
   );
 }

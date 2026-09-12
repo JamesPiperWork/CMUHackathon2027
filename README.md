@@ -42,7 +42,7 @@ cp .env.example .env.local   # then fill in GEMINI_API_KEY
 | Var | Required | Notes |
 |---|---|---|
 | `GEMINI_API_KEY` | for Gemini lures | Without it the app still runs — lures fall back to a template. |
-| `GEMINI_MODEL` | no | Default `gemini-1.5-flash`. **The only place the model name lives.** One-line swap. |
+| `GEMINI_MODEL` | no | Default `gemini-3.6-flash`. **The only place the model name lives.** One-line swap. |
 | `NEXT_PUBLIC_APP_URL` | no | Leave unset; tracking links use each request's own origin (works on localhost and any Vercel URL). |
 
 ## Run
@@ -84,6 +84,24 @@ Deploy to Vercel: import the repo, set `GEMINI_API_KEY`, deploy. Nothing else to
 
 `npm run test:e2e` runs exactly this path (plus the negative cases) against a live server
 and prints ✓ per check.
+
+## Brand
+
+The UI follows the **Mavacy Brand Guidelines (Sept 2025)** checked into this repo as
+`Mavacy_BrandGuidelines (2).pdf`:
+
+- **Palette** (the only colors used): Prussian `#0A2536`, Indigo `#153954`, Payne `#33566D`,
+  Sky `#F2FDFF`, Mint `#D5F9F4`, Cyan `#3FE4E4`, Fawn `#FFBA7A`, Icterine `#FFFA70`. Defined once
+  in `tailwind.config.ts`.
+- **Type**: Argent CF for headings, Almarena for body and CTAs. Both are commercial faces and
+  are not bundled. `src/app/fonts.ts` loads the closest open pairings (Instrument Serif /
+  Instrument Sans), and the Tailwind font stacks list the licensed names first, so they take
+  over automatically wherever they're installed. To bundle the licensed files, drop them in
+  `public/fonts` and swap the two exports in `fonts.ts` for `next/font/local`.
+- **Texture**: film grain over a Prussian→Indigo gradient (CSS, no assets), plus the dashed
+  chevron and fine-line patterns as section backdrops.
+- **Shapes**: 24 px card radius, pill labels and buttons, hairline rules. Logo mark is the
+  double-peak M in Sky or Cyan on dark, never rotated, stretched, or washed out.
 
 ## Scoring
 
