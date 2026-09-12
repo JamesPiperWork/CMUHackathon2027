@@ -61,7 +61,7 @@ Frontend to Vercel, backend to an always-on host. See [docs/DEPLOY_VERCEL.md](do
 4. **Send your bait.** In immediate delivery mode, use the selected medium’s send button in Bait; no separate match activation is needed. Voice requires creating, playing and approving the exact audio first. A missing phone provider blocks real text/call submission without consuming the cast. Scheduled mode keeps **Start fishing** after saving at least one cast. Remaining casts can be added during the active week. Only authored casts are sent; no ordinary gameplay mail or automatic filler is added. Bait shows outgoing delivery status.
 5. **Follow the league.** League contains standings, pairings, chat and past match results. New weeks rotate opponents, with byes for odd-sized leagues.
 
-New email drafting follows main’s context → editable email flow. Its configured default model is `gemini-3.6-flash`, overridable with `GEMINI_MODEL`. If Gemini is unavailable, the app labels its prepared fallback; a failed revision keeps the existing draft. Model availability and real output quality require a provider rehearsal.
+New email drafting follows main’s context → editable email flow. Its configured default model is `gemini-3.6-flash`, overridable with `GEMINI_MODEL`. If Gemini is unavailable, the app labels its prepared fallback; a failed revision keeps the existing draft. Model availability and real output quality require a provider rehearsal. See the [email authoring guide](docs/EMAIL_AUTHORING.md) for example briefs, optional writing helpers, the generation checks, and `npm run email:eval`.
 
 ### Scoring
 

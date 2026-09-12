@@ -13,6 +13,17 @@ type BaitChoice = { id: string; label: string; channel: Channel; kind?: "regular
 const channelNames: Record<Channel, string> = { email: "Email", sms: "Text", voice: "Voice" };
 const mediumNames: Record<Channel, string> = { email: "email", sms: "text message", voice: "call script" };
 const channelIcons = { email: "mail", sms: "sms", voice: "voice" } as const;
+const ideaAngles = [
+  { label: "Invitation", guidance: "Frame this topic as a friendly invitation from a fictional hobby club. Include one relevant activity and a clear next step." },
+  { label: "Useful resource", guidance: "Offer a useful resource about this topic from a fictional community. Give one concrete example of what it covers." },
+  { label: "Hobby update", guidance: "Write a simple update from a fictional hobby group about this topic. Highlight one specific new detail and why it is relevant." },
+];
+const refinementIdeas = [
+  { label: "Shorter", guidance: "Make this more concise. Keep the topic, the most useful detail, and one clear next step." },
+  { label: "More natural", guidance: "Use a warm, conversational tone. Remove marketing phrases and exaggerated claims; preserve the topic and details." },
+  { label: "More specific", guidance: "Make the connection to my original topic more concrete. Use its details without inventing personal facts or changing the premise." },
+];
+const appendGuidance = (value: string, guidance: string, separator = "\n\n") => `${value}${value ? separator : ""}${guidance}`;
 const deliveryLabels: Record<DeliveryStatus, string> = {
   queued: "Queued for delivery", simulated: "Simulated delivery", accepted: "Accepted by provider",
   delivered: "Delivered", failed: "Delivery failed", unknown: "Delivery unconfirmed",
@@ -66,6 +77,7 @@ export default function Draft() {
   const [notesEdited, setNotesEdited] = useState(false);
   const [refinement, setRefinement] = useState("");
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [ideaHelpOpen, setIdeaHelpOpen] = useState(false);
   const [loadingNotes, setLoadingNotes] = useState(false);
   const [notesError, setNotesError] = useState(false);
   const [retry, setRetry] = useState(0);
@@ -112,6 +124,7 @@ export default function Draft() {
     setStep(current => draft?.generationStatus === "pending" ? current : draft?.channel === channel ? "review" : "choose");
     setRefinement("");
     setDetailsOpen(false);
+    setIdeaHelpOpen(false);
     setSendResult(null);
     setError(null);
   }, [draft?.id, draft?.generationStatus, state?.match.id]);
@@ -275,6 +288,18 @@ export default function Draft() {
           onChangeText={setContext}
           placeholder="They love small acoustic shows. A casual update about a Friday booking would catch their eye."
           help="Your private notes. Hobbies and fictional plans are enough; leave out private contact details." />
+        {channel === "email" && !locked && <View style={{ gap: 8 }}>
+          <Pressable accessibilityRole="button" accessibilityState={{ expanded: ideaHelpOpen, disabled }} disabled={disabled}
+            onPress={() => setIdeaHelpOpen(value => !value)} style={{ minHeight: 44, justifyContent: "center", opacity: disabled ? 0.45 : 1 }}>
+            <Txt muted style={{ fontSize: 13 }}>Help shape my idea {ideaHelpOpen ? "−" : "+"}</Txt>
+          </Pressable>
+          {ideaHelpOpen && <>
+            <Txt muted style={{ fontSize: 12, lineHeight: 20 }}>Start with an interest above, then add an angle. This adds guidance to your idea; you can edit it before generating.</Txt>
+            <Row style={{ flexWrap: "wrap", gap: 8 }}>{ideaAngles.map(idea => <Button key={idea.label} small variant="secondary" style={{ borderRadius: 20 }}
+              accessibilityLabel={`Add ${idea.label.toLowerCase()} guidance`} disabled={disabled || notes.trim().length < 3 || notes.includes(idea.guidance) || appendGuidance(notes, idea.guidance).length > 1800}
+              onPress={() => setContext(appendGuidance(notes, idea.guidance))}>{idea.label}</Button>)}</Row>
+          </>}
+        </View>}
         {locked ? <Button disabled={!canReview || disabled} onPress={() => navigate("review")}>View your {medium}</Button> : <>
           <Button icon="sparkle" loading={working === "create" || generating} disabled={disabled || dirty || spearUnavailable || attemptsLeft === 0 || notes.trim().length < 3} onPress={() => createMessage()}>{generating ? `Writing your ${medium}…` : `Generate ${medium}`}</Button>
           {emailCasts && (selected.kind === "spear" || (attemptsLeft === 0 && !canReview)) && <Button variant="secondary" loading={working === "write"} disabled={disabled || dirty || spearUnavailable || notes.trim().length < 3} onPress={() => createMessage(true)}>{selected.kind === "spear" ? "Write my own Spear" : "Create an editable draft"}</Button>}
@@ -324,6 +349,9 @@ export default function Draft() {
         {!deliveryReady && <View style={{ gap: 8 }}><Txt muted style={{ fontSize: 13, lineHeight: 21 }}>{readiness?.reason || "Delivery is not connected for this medium."}</Txt><Button small variant="ghost" onPress={() => router.push("/settings")}>View delivery setup</Button></View>}
         {emailCasts && <>
           <Divider />
+          {channel === "email" && <Row style={{ flexWrap: "wrap", gap: 8 }}>{refinementIdeas.map(idea => <Button key={idea.label} small variant="secondary" style={{ borderRadius: 20 }}
+            accessibilityLabel={`Suggest ${idea.label.toLowerCase()} wording`} disabled={disabled || spearUnavailable || attemptsLeft === 0 || refinement.includes(idea.guidance) || appendGuidance(refinement, idea.guidance, " ").length > 500}
+            onPress={() => setRefinement(appendGuidance(refinement, idea.guidance, " "))}>{idea.label}</Button>)}</Row>}
           <Field label="Want Gemini to change something?" value={refinement} maxLength={500} editable={!disabled && attemptsLeft > 0}
             onChangeText={setRefinement} placeholder="Make it shorter and a little more casual."
             help={attemptsLeft ? `${attemptsLeft} ${attemptsLeft === 1 ? "generation" : "generations"} left for this cast. Your current edits are included.` : "No generations left. You can still edit the message above."} />

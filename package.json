@@ -18,6 +18,7 @@
     "test": "tsx --test apps/api/test/*.test.ts packages/shared/src/*.test.ts",
     "build": "node --env-file-if-exists=.env scripts/build.mjs",
     "email:check": "tsx scripts/check-email.ts",
+    "email:eval": "node --env-file-if-exists=.env --import tsx scripts/evaluate-email.ts",
     "email:demo": "node --env-file-if-exists=.env scripts/start-email-demo.mjs",
     "email:capture": "node --env-file-if-exists=.env scripts/start-capture.mjs"
   },

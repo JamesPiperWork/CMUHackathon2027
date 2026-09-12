@@ -182,7 +182,7 @@ test("free-context fallback centers arbitrary hobbies without legacy stories or 
     ["They collect vintage postcards.", "vintage postcards"],
   ]) {
     const result = await generateContent(promptInput(brief), { env: {} });
-    assert.equal(result.promptVersion, "email-prompt-v3");
+    assert.equal(result.promptVersion, "email-authoring-v4");
     assert.equal(result.source, "fixture");
     assert.match(result.reason!, /Gemini is not connected/);
     assert.ok(result.content.subject.toLowerCase().includes(topic));
@@ -204,7 +204,7 @@ test("free-context Gemini receives the sender's brief as its primary input with 
       return gemini(JSON.stringify({ subject: `A ${pretext} invitation`, body: `Hi there,\n\nOur fictional community group is planning a ${pretext} for people who enjoy ${topic}. There will be a short activity and time to meet other enthusiasts. Reserve your place using ${EMAIL_TRACKING_PLACEHOLDER}.\n\nThe organizers` }));
     }) as typeof fetch });
     assert.equal(payload.authorPrompt, brief);
-    assert.deepEqual(Object.keys(payload), ["authorPrompt", "fictionalSender"]);
+    assert.deepEqual(Object.keys(payload), ["authorPrompt", "fictionalSender", "briefHints"]);
     assert.equal(payload.fictionalSender, fictionalEmailSender(brief));
     assert.equal(result.source, "gemini");
     assert.equal(result.content.senderDisplayName, fictionalEmailSender(brief));
