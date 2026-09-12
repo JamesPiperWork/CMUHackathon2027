@@ -7,14 +7,21 @@ import { z } from "zod";
 import {
   decisionSchema,
   generateSchema,
-  interests,
   type Session,
 } from "@fp/shared";
 import { ApiError, GameService } from "./service.js";
+import { accountSetupSchema, saveAccount } from "./accounts.js";
+import { registerEmailAuth } from "./email-auth.js";
+import { registerLocalAuth } from "./local-auth.js";
+import { demoResetCapability, resetDemo } from "./demo-reset.js";
 import { LeagueService } from "./leagues.js";
 import { registerMobilePreview } from "./mobile-preview.js";
+import { registerWebApp } from "./web-app.js";
 import { registerProviderRoutes } from "./providers.js";
 import { registerLiveAuth, resolveLiveIdentity } from "./auth-live.js";
+import { scoutingInputSchema } from "./scouting.js";
+import { registerVoiceAuthoringRoutes } from "./voice-authoring.js";
+import { registerPhoneEnrollmentRoutes } from "./phone-enrollment.js";
 const escape = (value: unknown) =>
   String(value).replace(
     /[&<>"']/g,
@@ -100,7 +107,7 @@ export async function createServer(
         csrf: "",
       };
     }
-    throw new ApiError(401, "Sign in to your fictional player session");
+    throw new ApiError(401, "Sign in to your account");
   };
   const getSession = async (request: FastifyRequest, mutation = false) => {
     const bearer = request.headers.authorization?.startsWith("Bearer ")
@@ -127,7 +134,7 @@ export async function createServer(
     return session;
   };
   const operator = async (request: FastifyRequest) => {
-    if (service.config.mode !== "demo")
+    if (!service.simulated)
       throw new ApiError(403, "Demo controls disabled in live mode");
     const session = await getSession(request, request.method !== "GET");
     if (session.role !== "operator")
@@ -142,9 +149,11 @@ export async function createServer(
   app.get("/api/config", async () => ({
     mode: service.config.mode,
     apiOrigin: service.config.apiOrigin,
+    emailDelivery: service.config.emailDemo ? "smtp-demo" : service.config.mode === "live" ? "live" : "simulated",
+    deliveryTiming: service.immediateDelivery ? "immediate" : "scheduled",
   }));
-  app.post("/api/demo/session", async (request, reply) => {
-    if (service.config.mode !== "demo")
+  app.post("/api/demo/session", async (request) => {
+    if (!service.simulated)
       throw new ApiError(403, "Demo sign-in disabled in live mode");
     const origin = request.headers.origin;
     if (
@@ -152,28 +161,35 @@ export async function createServer(
       ![service.config.appOrigin, service.config.apiOrigin].includes(origin)
     )
       throw new ApiError(403, "Origin rejected");
-    const { player } = z
-      .object({ player: z.enum(["alex", "jordan", "sam", "riley", "casey", "morgan", "jamie", "taylor", "operator"]) })
-      .strict()
-      .parse(request.body);
-    const result = await service.createSession(
-      player === "operator" ? "alex" : player,
-      player === "operator" ? "operator" : "player",
-    );
-    reply.setCookie("fp_session", result.token, {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
-      secure: false,
-      maxAge: 7 * 86400,
-    });
+    throw new ApiError(410, "Create an account or sign in with your email and password.");
+  });
+  registerEmailAuth(app, service);
+  registerLocalAuth(app, service);
+  app.post("/api/demo/reset", async (request, reply) => {
+    const session = await getSession(request, true);
+    z.object({ confirm: z.literal("RESET") }).strict().parse(request.body);
+    const result = await resetDemo(service, session.userId);
+    if (!result.preserveSession) reply.clearCookie("fp_session", { path: "/", httpOnly: true, secure: service.config.apiOrigin.startsWith("https:"), sameSite: "lax" });
     return result;
   });
+  app.post("/api/account/setup", async request => {
+    const session = await getSession(request, true);
+    return saveAccount(service, session.userId, accountSetupSchema.parse(request.body));
+  });
   const leagues = new LeagueService(service);
+  app.post("/api/session/logout", async (request, reply) => {
+    const session = await getSession(request, true);
+    await service.transact(db => { db.sessions = db.sessions.filter(s => s.tokenHash !== session.tokenHash); });
+    reply.clearCookie("fp_session", { path: "/", httpOnly: true, secure: service.config.apiOrigin.startsWith("https:"), sameSite: "lax" });
+    return { ok: true };
+  });
   registerMobilePreview(app, service.config.appOrigin);
   app.get("/api/state", async (request) => {
     const session = await getSession(request);
-    return (await service.forSession(session)).state(session);
+    return { ...await (await service.forSession(session)).state(session),
+      demoReset: demoResetCapability(service, await service.readDb(), session.userId),
+      deliveryTiming: service.immediateDelivery ? "immediate" : "scheduled",
+      emailDelivery: service.config.emailDemo ? "smtp-demo" : service.config.mode === "live" ? "live" : "simulated" };
   });
   app.get("/api/leagues", async (request) => leagues.list(await getSession(request)));
   app.post("/api/leagues", async (request) => {
@@ -202,14 +218,17 @@ export async function createServer(
     const { body } = z.object({ body: z.string().trim().min(1).max(600) }).strict().parse(request.body);
     return leagues.postChat(session, request.params.id, body);
   });
-  app.get<{ Params: { id: string; matchId: string } }>("/api/leagues/:id/matchups/:matchId/recap", async (request) => leagues.recap(await getSession(request), request.params.id, request.params.matchId));
+  app.get("/api/leagues/:id/matchups/:matchId/recap", async (request, reply) => {
+    await getSession(request);
+    return reply.code(410).send({ error: "This recap is no longer available. View match results in League." });
+  });
   app.get<{ Params: { targetId: string } }>("/api/scouting/:targetId", async (request) => {
     const session = await getSession(request);
     return (await service.forSession(session, true)).scouting(session.userId, request.params.targetId);
   });
   app.put<{ Params: { targetId: string } }>("/api/scouting/:targetId", async (request) => {
     const session = await getSession(request, true);
-    const input = z.object({ interests: z.array(z.enum(interests)).min(1).max(3), markdown: z.string().max(1800) }).strict().parse(request.body);
+    const input = scoutingInputSchema.parse(request.body);
     return (await service.forSession(session, true)).saveScouting(session.userId, request.params.targetId, input);
   });
   app.post("/api/consent", async (request) => {
@@ -281,6 +300,11 @@ export async function createServer(
     await (await service.forSession(session, true)).lock(session.userId, request.params.id);
     return { ok: true };
   });
+  app.post<{ Params: { id: string } }>("/api/drafts/:id/send", async (request) => {
+    const session = await getSession(request, true);
+    z.object({}).strict().parse(request.body ?? {});
+    return (await service.forSession(session, true)).sendCast(session.userId, request.params.id);
+  });
   app.post("/api/match/activate", async (request) => {
     const session = await getSession(request, true);
     await (await service.forSession(session, true)).activate(session.userId);
@@ -313,7 +337,7 @@ export async function createServer(
   });
   app.post("/api/operator/reset", async (request) => {
     await operator(request);
-    await service.reset();
+    await service.reset(true);
     return { ok: true };
   });
   app.post("/api/operator/release", async (request) => {
@@ -358,14 +382,14 @@ export async function createServer(
     } catch {
       /* A preview is deliberately score neutral and may precede sign-in. */
     }
-    if (session && session.userId !== scenario.recipientId)
-      throw new ApiError(403, "This challenge belongs to the other player");
+    const differentAccount = Boolean(session && session.userId !== scenario.recipientId);
+    if (differentAccount) { session = null; reply.code(403); }
     const marker =
-      service.config.mode === "demo"
+      service.simulated
         ? '<p class="tag">Simulated delivery · fictional league</p>'
         : "";
     let body =
-      marker +
+      marker + (differentAccount ? "<p>This email belongs to another account. Sign in as the intended recipient below.</p>" : "") +
       `<p class="muted">${escape(scenario.content.senderDisplayName)}</p><div class="message">${escape(scenario.channel === "sms" ? scenario.content.smsText : scenario.channel === "voice" ? scenario.content.voiceScript : scenario.content.bodyText)}</div>`;
     if (session) {
       const decision = db.decisions.find(
@@ -375,8 +399,10 @@ export async function createServer(
         body += `<h2>${decision.correct ? "Bait spotted. Nicely played." : "You took a detour."}</h2><p>${escape(scenario.content.explanation)}</p><p>${decision.defenderPoints > 0 ? "+" : ""}${decision.defenderPoints} points</p>`;
       else
         body += `<p>Inspect freely. Only your submitted answer locks a decision.</p><form method="post" action="/r/${escape(request.params.token)}"><input type="hidden" name="csrf" value="${escape(session.csrf)}"><button name="choice" value="trust">Trust it</button><button name="choice" value="flag">Flag as phishing</button></form>`;
-    } else if (service.config.mode === "demo")
-      body += `<p>Sign in as the intended fictional recipient to respond. Opening this preview earns no points.</p><form method="post" action="/r/${escape(request.params.token)}/login"><label>Fictional player<select name="player"><option value="alex">Alex</option><option value="jordan">Jordan</option></select></label><button>Demo sign in</button></form>`;
+    } else if (service.config.emailDemo)
+      body += `<p>Sign in with your verified email to respond. Opening this page does not change your score.</p><a href="/auth/email?challenge=${encodeURIComponent(request.params.token)}">Sign in to respond</a>`;
+    else if (service.simulated)
+      body += `<p>Sign in to the account that received this challenge, then return here to respond. Opening this preview earns no points.</p><a href="${escape(service.config.appOrigin)}">Sign in to your account</a>`;
     else
       body += `<p>Opening this preview earns no points.</p><a href="/auth/login?challenge=${encodeURIComponent(request.params.token)}">Sign in to respond</a>`;
     body += `<p><a href="${escape(service.config.appOrigin)}">Back to the league</a></p>`;
@@ -386,28 +412,10 @@ export async function createServer(
     Params: {
       token: string;
     };
-  }>("/r/:token/login", async (request, reply) => {
-    if (service.config.mode !== "demo")
+  }>("/r/:token/login", async () => {
+    if (!service.simulated)
       throw new ApiError(403, "Demo sign-in disabled");
-    const origin = request.headers.origin;
-    if (origin && origin !== service.config.apiOrigin)
-      throw new ApiError(403, "Origin rejected");
-    const { scenario } = await service.challengeToken(request.params.token);
-    const { player } = z
-      .object({ player: z.enum(["alex", "jordan", "sam", "riley", "casey", "morgan", "jamie", "taylor"]) })
-      .strict()
-      .parse(request.body);
-    if (player !== scenario.recipientId)
-      throw new ApiError(403, "Sign in as the intended recipient");
-    const { token } = await service.createSession(player);
-    reply.setCookie("fp_session", token, {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
-      secure: false,
-      maxAge: 7 * 86400,
-    });
-    return reply.redirect(`/r/${encodeURIComponent(request.params.token)}`);
+    throw new ApiError(410, "Sign in with your email and password in the app.");
   });
   app.post<{
     Params: {
@@ -423,7 +431,8 @@ export async function createServer(
     await (await service.forScenario(scenario.id)).decisionFor(session.userId, scenario.id, input.choice);
     return reply.redirect(`/r/${encodeURIComponent(request.params.token)}`);
   });
-  app.get("/", async (_request, reply) =>
+  if (service.config.emailDemo) registerWebApp(app);
+  else app.get("/", async (_request, reply) =>
     reply
       .type("text/html")
       .send(
@@ -434,6 +443,8 @@ export async function createServer(
       ),
   );
   await registerProviderRoutes(app, service);
+  registerVoiceAuthoringRoutes(app, service, getSession);
+  registerPhoneEnrollmentRoutes(app, service, getSession);
   await registerLiveAuth(app, service, service.config);
   const io = new Server(app.server, {
     cors: { origin: service.config.appOrigin, credentials: true },

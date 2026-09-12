@@ -1,11 +1,12 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { blankGame, buildSchedule, type Database, type LeagueSummary, type LeagueSettings, type LeagueMatchup, type MatchStory, type Session } from '@fp/shared';
+import { blankGame, buildSchedule, type Database, type LeagueSummary, type LeagueSettings, type LeagueMatchup, type Session } from '@fp/shared';
 import { ApiError, type GameService } from './service.js';
+import { accountFor } from "./accounts.js";
 import { gamePools } from './repository.js';
 
 export function requireLeague(db: Database, userId: string, leagueId: string) {
   const league = db.leagues?.find((l) => l.id === leagueId);
-  if (!league || !db.members.some((m) => m.userId === userId && m.leagueId === leagueId))
+  if (!league || league.archivedAt || !db.members.some((m) => m.userId === userId && m.leagueId === leagueId))
     throw new ApiError(404, 'League not found');
   return league;
 }
@@ -15,7 +16,7 @@ export function leagueProfile(db: Database, userId: string, leagueId: string) {
   return { ...profile, ...record };
 }
 export function leagueSummaries(db: Database, userId: string): LeagueSummary[] {
-  return (db.leagues ?? []).filter((l) => db.members.some((m) => m.leagueId === l.id && m.userId === userId)).map((l) => ({
+  return (db.leagues ?? []).filter((l) => !l.archivedAt && db.members.some((m) => m.leagueId === l.id && m.userId === userId)).map((l) => ({
     ...l, memberCount: db.members.filter((m) => m.leagueId === l.id).length,
     myMatchId: gamePools(db).find((p) => p.match.leagueId === l.id && p.match.week === l.currentWeek && p.match.players.includes(userId))?.match.id ?? null,
   }));
@@ -24,28 +25,31 @@ export class LeagueService {
   constructor(private service: GameService) {}
   async list(session: Session) {
     const db = await this.service.readDb();
-    return { leagues: leagueSummaries(db, session.userId), selectedLeagueId: session.selectedLeagueId ?? db.userSelections?.[session.userId]?.leagueId ?? db.match.leagueId };
+    const leagues = leagueSummaries(db, session.userId);
+    const selected = session.selectedLeagueId ?? db.userSelections?.[session.userId]?.leagueId ?? db.match.leagueId;
+    return { leagues, selectedLeagueId: leagues.some(league => league.id === selected) ? selected : leagues[0]?.id ?? "" };
   }
   async create(session: Session, name: string) {
     return this.service.transact((db) => {
-      if (db.leagues!.filter((l) => l.commissionerId === session.userId).length >= 10) throw new ApiError(409, 'You already manage ten leagues');
-      const source = db.members.find((m) => m.userId === session.userId)!;
+      if (db.leagues!.filter((l) => !l.archivedAt && l.commissionerId === session.userId).length >= 10) throw new ApiError(409, 'You already manage ten leagues');
+      const source = accountFor(db, session.userId);
+      if (!source.consent.acceptedAt) throw new ApiError(409, "Finish player setup before joining a league");
       const id = randomUUID();
-      const multiChannel = this.service.config.ruleSet !== 'email-casts-v2';
-      db.leagues!.push({ id, name, inviteCode: randomBytes(5).toString('hex').toUpperCase(), commissionerId: session.userId, currentWeek: 1, season: new Date(this.service.now(db)).getFullYear(), settings: { difficulty: 'standard', familyFriendly: true, channels: { email: true, sms: multiChannel, voice: multiChannel } }, createdAt: this.service.now(db), standings: { [session.userId]: { leaguePoints: 0, wins: 0, losses: 0, draws: 0 } } });
-      db.members.push({ ...structuredClone(source), leagueId: id });
+      db.leagues!.push({ id, name, inviteCode: randomBytes(5).toString('hex').toUpperCase(), commissionerId: session.userId, currentWeek: 1, season: new Date(this.service.now(db)).getFullYear(), settings: { difficulty: 'standard', familyFriendly: true, channels: { email: true, sms: true, voice: true } }, createdAt: this.service.now(db), standings: { [session.userId]: { leaguePoints: 0, wins: 0, losses: 0, draws: 0 } } });
+      db.members.push({ userId: source.userId, consent: structuredClone(source.consent), ...(source.auth0Sub ? { auth0Sub: source.auth0Sub } : {}), accepted: true, leagueId: id });
       this.setSelection(db, session, id);
       return leagueSummaries(db, session.userId).find((l) => l.id === id)!;
     });
   }
   async join(session: Session, inviteCode: string) {
     return this.service.transact((db) => {
-      const league = db.leagues!.find((l) => l.inviteCode === inviteCode.toUpperCase());
+      const league = db.leagues!.find((l) => !l.archivedAt && l.inviteCode === inviteCode.toUpperCase());
       if (!league) throw new ApiError(404, 'Invite code not found');
       if (!db.members.some((m) => m.leagueId === league.id && m.userId === session.userId)) {
         if (db.members.filter((m) => m.leagueId === league.id).length >= 16) throw new ApiError(409, 'This league has reached 16 players');
-        const source = db.members.find((m) => m.userId === session.userId)!;
-        db.members.push({ ...structuredClone(source), leagueId: league.id });
+        const source = accountFor(db, session.userId);
+      if (!source.consent.acceptedAt) throw new ApiError(409, "Finish player setup before joining a league");
+        db.members.push({ userId: source.userId, consent: structuredClone(source.consent), ...(source.auth0Sub ? { auth0Sub: source.auth0Sub } : {}), accepted: true, leagueId: league.id });
         if (league.standings) league.standings[session.userId] = { leaguePoints: 0, wins: 0, losses: 0, draws: 0 };
       }
       this.schedule(db, league.id);
@@ -115,7 +119,6 @@ export class LeagueService {
       const league = requireLeague(db, session.userId, leagueId);
       if (league.commissionerId !== session.userId) throw new ApiError(403, 'Only the commissioner can change league rules');
       if (!Object.values(settings.channels).some(Boolean)) throw new ApiError(400, 'Enable at least one channel');
-      if (this.service.config.ruleSet === 'email-casts-v2' && !settings.channels.email) throw new ApiError(400, 'Email must stay enabled for email cast matches.');
       const channelChange = Object.keys(settings.channels).some((key) => settings.channels[key as keyof typeof settings.channels] !== league.settings.channels[key as keyof typeof settings.channels]);
       if (channelChange && gamePools(db).some((p) => p.match.leagueId === leagueId && p.match.week === league.currentWeek && (p.match.state !== 'drafting' || p.scenarios.some((s) => s.authorId)))) throw new ApiError(409, 'Channel rules are locked after drafting begins. Change them in a new week before anyone drafts.');
       league.settings = settings;
@@ -169,29 +172,5 @@ export class LeagueService {
       db.chat!.push(message);
       return { ...message, author: leagueProfile(db, session.userId, leagueId) };
     });
-  }
-  async recap(session: Session, leagueId: string, matchId: string): Promise<MatchStory> {
-    const db = await this.service.readDb();
-    const league = requireLeague(db, session.userId, leagueId);
-    const pool = gamePools(db).find((p) => p.match.id === matchId && p.match.leagueId === leagueId);
-    if (!pool || pool.match.state !== 'completed') throw new ApiError(404, 'Wrapped is available after this match finishes');
-    const name = (id: string) => db.profiles.find((p) => p.id === id)?.name ?? 'Player';
-    const highlights: MatchStory['highlights'] = pool.decisions.flatMap((decision) => {
-      const scenario = pool.scenarios.find((s) => s.id === decision.scenarioId);
-      if (!scenario || !scenario.isPhishing || !scenario.authorId) return [];
-      return [{ id: decision.id, kind: decision.correct ? 'defense' as const : 'attack' as const, actorName: name(decision.correct ? decision.recipientId : scenario.authorId), targetName: name(decision.correct ? scenario.authorId : decision.recipientId), text: scenario.channel === 'email' ? scenario.content.bodyText : scenario.channel === 'sms' ? scenario.content.smsText : scenario.content.voiceScript, detail: decision.correct ? `${name(decision.recipientId)} spotted the unexpected change and flagged it.` : `${name(decision.recipientId)} trusted “${scenario.content.subject}”. ${scenario.content.explanation}`, channel: scenario.channel, points: decision.correct ? decision.defenderPoints : decision.authorPoints, createdAt: decision.createdAt }];
-    }).sort((a, b) => (a.kind === 'attack' ? 0 : 1) - (b.kind === 'attack' ? 0 : 1) || a.createdAt - b.createdAt).slice(0, 5);
-    if (pool.match.ruleSet === "email-casts-v2") {
-      for (const event of pool.scoreEvents.filter(e => e.type === "avoidance")) {
-        const scenario = pool.scenarios.find(s => s.id === event.sourceId);
-        if (!scenario || !scenario.authorId) continue;
-        const prior = highlights.find(h => pool.decisions.some(d => d.id === h.id && d.scenarioId === scenario.id));
-        if (prior) { prior.points = event.points; prior.detail = `${name(event.userId)} flagged the bait and earned +1 when the week ended.`; continue; }
-        highlights.push({ id: event.id, kind: "avoidance", actorName: name(event.userId), targetName: name(scenario.authorId), text: scenario.content.bodyText, detail: `${name(event.userId)} never opened this cast's link. +1 at the weekly deadline.`, channel: "email", points: 1, createdAt: pool.match.completedAt! });
-      }
-    }
-    const chat = (db.chat ?? []).filter((m) => m.leagueId === leagueId && pool.match.players.includes(m.userId) && m.createdAt >= (pool.match.startedAt ?? 0) && m.createdAt <= pool.match.completedAt! + 86400000).slice(-3);
-    highlights.push(...chat.map((m) => ({ id: m.id, kind: 'chat' as const, actorName: name(m.userId), text: m.body, createdAt: m.createdAt })));
-    return { id: matchId, leagueName: league.name, week: pool.match.week ?? 4, players: pool.match.players.map((id) => leagueProfile(db, id, leagueId)), scores: pool.match.scores, winnerId: pool.match.winnerId, completedAt: pool.match.completedAt!, synthetic: pool.match.synthetic ?? false, highlights };
   }
 }

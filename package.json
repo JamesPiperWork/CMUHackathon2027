@@ -10,14 +10,15 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "node --env-file-if-exists=.env node_modules/concurrently/dist/bin/concurrently.js -k -n api,mobile \"npm run dev -w @fp/api\" \"npm run dev -w @fp/mobile\"",
+    "dev": "node --env-file-if-exists=.env scripts/start-dev.mjs",
     "seed": "npm run seed -w @fp/api",
     "reset:demo": "npm run reset:demo -w @fp/api",
     "typecheck": "tsc -p tsconfig.scripts.json && npm run typecheck --workspaces --if-present",
     "lint": "eslint apps packages scripts",
     "test": "tsx --test apps/api/test/*.test.ts packages/shared/src/*.test.ts",
-    "build": "npm run build -w @fp/api && npm run build -w @fp/mobile",
-    "demo:finish": "tsx scripts/finish-demo.ts"
+    "build": "node --env-file-if-exists=.env scripts/build.mjs",
+    "email:check": "tsx scripts/check-email.ts",
+    "email:demo": "node --env-file-if-exists=.env scripts/start-email-demo.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",

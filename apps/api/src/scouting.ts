@@ -19,7 +19,7 @@ export class ScoutingError extends Error {
 }
 export const scoutingInputSchema = z
   .object({
-    interests: z.array(z.enum(interests)).min(1).max(3),
+    interests: z.array(z.enum(interests)).max(3).default([]),
     markdown: z.string().max(1800),
   })
   .strict();

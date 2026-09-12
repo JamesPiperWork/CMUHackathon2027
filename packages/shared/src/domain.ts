@@ -76,10 +76,19 @@ export interface Member {
   consent: Consent;
   auth0Sub?: string;
 }
+export interface PlayerAccount {
+  userId: string;
+  consent: Consent;
+  auth0Sub?: string;
+  localAuth?: { email: string; passwordHash: string };
+}
 export interface Scenario {
+  voiceAudio?: VoiceAudio;
   kind?: "regular" | "spear";
   slot?: 1 | 2;
-  contentPolicy?: "email-narrative-v1";
+  contentPolicy?: "email-narrative-v1" | "email-prompt-v3" | "message-prompt-v1";
+  /** Sender-owned context. Never exposed to the recipient. */
+  authorPrompt?: string;
   id: string;
   matchId: string;
   recipientId: string;
@@ -130,6 +139,8 @@ export interface Job {
   leaseExpiresAt: number | null;
   attempts: number;
   idempotencyKey: string;
+  /** Private immutable authoring context captured when generation is queued. */
+  generationInput?: GenerationInput;
 }
 export interface DeliveryAttempt {
   id: string;
@@ -139,10 +150,27 @@ export interface DeliveryAttempt {
   provider: "simulator" | "twilio" | "smtp";
   status: DeliveryStatus;
   providerId?: string;
+  /** Immutable email destination correlation; no receipt can retarget a send. */
+  recipientAddressHash?: string;
+  /** Immutable E.164 phone used for a submitted text/call, independent of later account changes. */
+  recipientPhoneHash?: string;
+  receiptOccurredAt?: number;
+  receiptStatus?: "delivered" | "bounced";
   createdAt: number;
   updatedAt: number;
   reason?: string;
   callbackIds: string[];
+}
+export interface EmailReceiptRecord {
+  eventId: string;
+  attemptId: string;
+  providerMessageId: string;
+  recipientAddressHash: string;
+  status: "delivered" | "bounced";
+  occurredAt: number;
+  receivedAt: number;
+  payloadDigest: string;
+  disposition: "applied" | "stale" | "terminal";
 }
 export interface Match {
   ruleSet?: "email-casts-v2";
@@ -188,6 +216,7 @@ export interface LeagueSettings {
   channels: Record<Channel, boolean>;
 }
 export interface LeagueRecord {
+  archivedAt?: number;
   id: string;
   name: string;
   inviteCode: string;
@@ -225,27 +254,6 @@ export interface LeagueMatchup {
   synthetic: boolean;
   playable: boolean;
 }
-export interface MatchStory {
-  id: string;
-  leagueName: string;
-  week: number;
-  players: Profile[];
-  scores: Record<string, number>;
-  winnerId: string | null;
-  completedAt: number;
-  synthetic: boolean;
-  highlights: {
-    id: string;
-    kind: "attack" | "defense" | "avoidance" | "chat";
-    actorName: string;
-    targetName?: string;
-    text: string;
-    detail?: string;
-    channel?: Channel;
-    points?: number;
-    createdAt: number;
-  }[];
-}
 export interface GamePool {
   match: Match;
   scenarios: Scenario[];
@@ -255,6 +263,12 @@ export interface GamePool {
   attempts: DeliveryAttempt[];
 }
 export interface Database {
+  voiceSynthesisAttempts?: { id: string; authorId: string; scenarioId: string; requestedAt: number; revision: string }[];
+  phoneVerifications?: { id: string; userId: string; destination: string; ipHash: string; createdAt: number; expiresAt: number; attempts: number; status: "pending" | "sent" | "failed" | "approved"; providerId?: string; consumedAt?: number; checkingAt?: number }[];
+  localAuthAttempts?: { emailHash: string; ipHash: string; createdAt: number }[];
+  emailLogins?: { id: string; email: string; codeHash: string; browserHash: string; ipHash: string; createdAt: number; expiresAt: number; attempts: number; status: "pending" | "sent" | "failed"; consumedAt?: number; challengeHash?: string }[];
+  emailReceipts?: EmailReceiptRecord[];
+  accounts?: PlayerAccount[];
   archivedDrafts?: Scenario[];
   spearUses?: { leagueId: string; season: number; userId: string; scenarioId: string; usedAt: number }[];
   version: 1;
@@ -302,9 +316,11 @@ export interface ScenarioPublic {
   };
 }
 export interface DraftPublic {
+  voiceAudio?: VoiceAudioPublic;
   kind?: "regular" | "spear";
   slot?: 1 | 2;
-  contentPolicy?: "email-narrative-v1";
+  contentPolicy?: "email-narrative-v1" | "email-prompt-v3" | "message-prompt-v1";
+  authorPrompt?: string;
   id: string;
   channel: Channel;
   templateId: string;
@@ -316,6 +332,31 @@ export interface DraftPublic {
   generationStatus: Scenario["generationStatus"];
   generationReason?: string;
   deliveryStatus: DeliveryStatus;
+}
+export interface VoiceAudio {
+  status: "generating" | "ready" | "failed";
+  revision: string;
+  requestId: string;
+  requestedAt: number;
+  voiceId: string;
+  model: string;
+  key?: string;
+  durationSeconds?: number;
+  generatedAt?: number;
+  previewedAt?: number;
+  approvedAt?: number;
+  error?: string;
+}
+export interface VoiceAudioPublic {
+  status: VoiceAudio["status"];
+  revision: string;
+  requestedAt: number;
+  durationSeconds?: number;
+  generatedAt?: number;
+  previewedAt?: number;
+  approvedAt?: number;
+  error?: string;
+  previewUrl?: string;
 }
 export interface ReadinessCondition {
   name: string;
@@ -341,6 +382,10 @@ export interface Recap {
   tip: string;
 }
 export interface PlayerState {
+  demoReset?: "all" | "active-leagues" | null;
+  emailDelivery?: "simulated" | "smtp-demo" | "live";
+  deliveryTiming?: "immediate" | "scheduled";
+  setupStage?: "player" | "league" | "ready";
   castRules: { version: "email-casts-v2" | "multichannel-v1"; regularLimit: number; spearLimit: number; spearUsed: number; spearRemaining: number };
   mode: "demo" | "live";
   revision: number;
@@ -380,8 +425,11 @@ export interface GenerateRequest {
   slot?: 1 | 2;
   recipientMemberId: string;
   channel: Channel;
-  interest: Interest;
-  templateId: string;
+  interest?: Interest;
+  templateId?: string;
+  authorPrompt?: string;
+  refinement?: string;
+  previousDraft?: Partial<Pick<ApprovedContent, "subject" | "bodyText" | "smsText" | "voiceScript">>;
 }
 export const generateSchema = z
   .object({
@@ -389,10 +437,15 @@ export const generateSchema = z
     slot: z.union([z.literal(1), z.literal(2)]).optional(),
     recipientMemberId: z.string(),
     channel: z.enum(channels),
-    interest: z.enum(interests),
-    templateId: z.enum(["ticket-drop", "parcel-update", "game-night"]),
+    interest: z.enum(interests).optional(),
+    templateId: z.enum(["ticket-drop", "parcel-update", "game-night"]).optional(),
+    authorPrompt: z.string().trim().min(3).max(1800).optional(),
+    refinement: z.string().trim().min(1).max(500).optional(),
+    previousDraft: z.object({ subject: z.string().min(3).max(100).optional(), bodyText: z.string().min(20).max(700).optional(), smsText: z.string().min(15).max(300).optional(), voiceScript: z.string().min(40).max(440).optional() }).strict().optional(),
   })
-  .strict();
+  .strict()
+  .refine(value => value.authorPrompt !== undefined || (value.interest !== undefined && value.templateId !== undefined), "Describe your idea for this cast.")
+  .refine(value => !value.previousDraft || (value.channel === "email" ? value.previousDraft.subject !== undefined && value.previousDraft.bodyText !== undefined : value.channel === "sms" ? value.previousDraft.smsText !== undefined : value.previousDraft.voiceScript !== undefined), "Include the current draft for the selected medium.");
 export const decisionSchema = z
   .object({ choice: z.enum(["trust", "flag"]) })
   .strict();
@@ -484,12 +537,15 @@ export interface DeliveryAdapter {
   send(envelope: DeliveryEnvelope): Promise<DeliveryResult>;
 }
 export interface GenerationInput {
-  policy?: "email-narrative-v1";
+  policy?: "email-narrative-v1" | "email-prompt-v3" | "message-prompt-v1";
+  authorPrompt?: string;
   channel: Channel;
   interest: Interest;
   templateId: string;
   fixture: ApprovedContent;
   scouting?: { interest: Interest; markdown: string };
+  refinement?: string;
+  previousDraft?: Partial<Pick<ApprovedContent, "subject" | "bodyText" | "smsText" | "voiceScript">>;
 }
 export interface GenerationResult {
   content: ApprovedContent;

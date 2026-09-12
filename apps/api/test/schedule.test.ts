@@ -25,6 +25,11 @@ async function setup(t: TestContext, ruleSet?: "email-casts-v2") {
     assert.equal(response.statusCode, 200, response.body);
     return response.json();
   };
+  for (const userId of users) await post(userId, "/api/account/setup", {
+    displayName: userId, email: `${userId}@demo.invalid`, adult: true,
+    channels: { email: true, sms: true, voice: true }, timezone: "America/New_York",
+    startHour: 10, endHour: 20, familyFriendly: true, excludedThemes: [],
+  });
   const league: LeagueSummary = await post(users[0], "/api/leagues", { name: "Circle anglers" });
   const joinLeague = (userId: string) => post(userId, "/api/leagues/join", { inviteCode: league.inviteCode });
   const matches = async (week: number) => gamePools(await repo.read()).map((p) => p.match).filter((m) => m.leagueId === league.id && m.week === week);
@@ -36,7 +41,7 @@ async function setup(t: TestContext, ruleSet?: "email-casts-v2") {
     });
     await post(users[0], `/api/leagues/${league.id}/next-week`);
   };
-  return { repo, file, users, league, joinLeague, matches, nextWeek };
+  return { repo, file, users, league, joinLeague, matches, nextWeek, post };
 }
 
 function checkWeek(matches: Match[], playerCount: number) {
@@ -113,14 +118,17 @@ test("legacy leagues acquire a cycle anchored to their saved week before advanci
   assert.equal((await f.repo.read()).leagues!.find((l) => l.id === f.league.id)!.scheduleCycle!.firstWeek, 1);
 });
 
-test("email-cast leagues carry their configured rules and season into every scheduled week", async (t) => {
+test("weekly cast leagues carry their selected media, rules and season into every scheduled week", async (t) => {
   const f = await setup(t, "email-casts-v2");
-  assert.deepEqual(f.league.settings.channels, { email: true, sms: false, voice: false });
+  assert.deepEqual(f.league.settings.channels, { email: true, sms: true, voice: true });
+  const selectedMedia = { email: false, sms: true, voice: true };
+  await f.post(f.users[0], `/api/leagues/${f.league.id}/settings`, { ...f.league.settings, channels: selectedMedia });
   await f.joinLeague(f.users[1]);
   for (let week = 1; week <= 2; week++) {
     const match = (await f.matches(week))[0];
     assert.equal(match.ruleSet, "email-casts-v2");
     assert.equal(match.season, f.league.season);
+    assert.deepEqual((await f.repo.read()).leagues!.find(league => league.id === f.league.id)!.settings.channels, selectedMedia);
     if (week === 1) await f.nextWeek();
   }
 });

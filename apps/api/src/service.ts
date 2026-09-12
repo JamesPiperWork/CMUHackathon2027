@@ -11,11 +11,17 @@ import {
   computeRecap,
   contentSchema,
   createSeed,
+  createFreshSeed,
   fixtureContent,
   contentReview,
+  containsStrongLanguage,
   scenarioConsistent,
   emailContentConsistent,
   emailTeachingContent,
+  emailPromptContentValid,
+  emailPromptTeachingContent,
+  messagePromptContentValid,
+  messagePromptTeachingContent,
   matchOutcome,
   scoreDecision,
   type ApprovedContent,
@@ -23,6 +29,7 @@ import {
   type Database,
   type Decision,
   type DecisionChoice,
+  type DeliveryResult,
   type GenerateRequest,
   type GenerationResult,
   type Job,
@@ -33,9 +40,14 @@ import {
 import type { Config } from "./config.js";
 import { MatchRepository, gamePools, type Repository } from "./repository.js";
 import { leagueProfile, leagueSummaries } from "./leagues.js";
-import { getScouting, saveScouting } from "./scouting.js";
-import { dispatch, generateContent, getReadiness } from "./providers.js";
+import { getScouting, saveScouting, validateScoutingMarkdown } from "./scouting.js";
+import { dispatch, generateContent, getReadiness, phoneDestinationHash } from "./providers.js";
+import { accountFor, setupState, ensureIdentityAccount } from "./accounts.js";
 import { emailGame, initializeEmailRules, castDraft, reserveSpear, spearUses, awardAvoidance } from "./email-casts.js";
+import { emailRecipientHash, smtpMessageId } from "./email-receipts.js";
+import { generateMessageLure, messagePromptFallback } from "./message-lure.js";
+import { invalidateVoiceDraft, publicVoiceAudio, voiceAudioApproved } from "./voice-authoring.js";
+import { emailPromptFallback } from "./email-lure.js";
 export class ApiError extends Error {
   constructor(
     public statusCode: number,
@@ -59,6 +71,8 @@ export class GameService {
     public repo: Repository,
     public config: Config,
   ) {}
+  get simulated() { return this.config.mode === "demo" && !this.config.emailDemo && !this.config.phoneDemo; }
+  get immediateDelivery() { return this.simulated || (this.config.mode === "demo" && Boolean(this.config.emailDemo && this.config.emailDemoImmediate)); }
   forMatch(matchId: string) {
     let scoped = this.scopes.get(matchId);
     if (!scoped) {
@@ -73,12 +87,16 @@ export class GameService {
     const selection = db.userSelections?.[session.userId];
     const matchId = session.selectedMatchId ?? selection?.matchId;
     const selectedLeagueId = session.selectedLeagueId ?? selection?.leagueId;
-    const requested = gamePools(db).find((p) => p.match.id === matchId && p.match.players.includes(session.userId));
-    const selectedLeagueMatches = gamePools(db).filter((p) => p.match.leagueId === selectedLeagueId && p.match.players.includes(session.userId)).sort((a, b) => (b.match.week ?? 0) - (a.match.week ?? 0));
+    const available = gamePools(db).filter(p => !db.leagues?.find(l => l.id === p.match.leagueId)?.archivedAt);
+    const requested = available.find((p) => p.match.id === matchId && p.match.players.includes(session.userId));
+    const selectedLeagueMatches = available.filter((p) => p.match.leagueId === selectedLeagueId && p.match.players.includes(session.userId)).sort((a, b) => (b.match.week ?? 0) - (a.match.week ?? 0));
     const newlyAssigned = selectedLeagueMatches.find((p) => p.match.state !== "completed") ?? selectedLeagueMatches[0];
-    const fallback = gamePools(db).find((p) => p.match.players.includes(session.userId) && p.match.state !== "completed") ?? gamePools(db).find((p) => p.match.players.includes(session.userId));
+    const fallback = available.find((p) => p.match.players.includes(session.userId) && p.match.state !== "completed") ?? available.find((p) => p.match.players.includes(session.userId));
     const chosen = requested ?? newlyAssigned ?? fallback;
-    if (!chosen) throw new ApiError(409, "Join a league with another player to get your first matchup");
+    if (!chosen) {
+      if (requireSelectedMatch) throw new ApiError(409, "Join a league with another player to get your first matchup");
+      return this;
+    }
     if (requireSelectedMatch && selectedLeagueId && chosen.match.leagueId !== selectedLeagueId)
       throw new ApiError(409, "This league is waiting for an opponent. Invite another player before drafting or starting a matchup.");
     return chosen.match.id === db.match.id ? this : this.forMatch(chosen.match.id);
@@ -95,6 +113,11 @@ export class GameService {
       if (pool.match.state !== "completed" && pool.match.state !== "cancelled") await this.forMatch(pool.match.id).tick();
   }
   async initializeRules() {
+    if (this.config.emailDemo) {
+      const db = await this.readDb();
+      if (db.clockOffset || db.profiles.some(p => !db.accounts?.some(a => a.userId === p.id && a.consent.contacts.email?.verified && a.consent.contacts.email.method === "verify")))
+        throw new ApiError(503, "Use a separate empty data file for the real-email demo. Sample identities and advanced clocks cannot send real mail.");
+    }
     if (this.config.ruleSet === "email-casts-v2") await this.transact(db => initializeEmailRules(db, this.now(db)));
   }
   async scouting(userId: string, targetId: string) {
@@ -112,7 +135,7 @@ export class GameService {
   private tokenKey() {
     const secret =
       process.env.TOKEN_SECRET ||
-      (this.config.mode === "demo"
+      (this.simulated
         ? "fictional-local-demo-token-key-only"
         : "");
     if (secret.length < 32)
@@ -147,6 +170,9 @@ export class GameService {
     return {
       ...process.env,
       APP_MODE: this.config.mode,
+      EMAIL_DELIVERY_MODE: this.config.emailDemo ? "smtp-demo" : "simulated",
+      EMAIL_DEMO_IMMEDIATE: this.config.emailDemoImmediate ? "true" : "false",
+      PHONE_DELIVERY_MODE: this.config.phoneDemo ? "twilio-demo" : "simulated",
       API_ORIGIN: this.config.apiOrigin,
       APP_ORIGIN: this.config.appOrigin,
       MONGODB_URI: this.config.mongodbUri,
@@ -161,7 +187,7 @@ export class GameService {
     return result;
   }
   async createSession(userId: string, role: "player" | "operator" = "player") {
-    if (this.config.mode === "live" && role === "operator")
+    if (!this.simulated && role === "operator")
       throw new ApiError(
         403,
         "Demo operator sessions are disabled in live mode",
@@ -169,8 +195,8 @@ export class GameService {
     const token = randomBytes(32).toString("base64url"),
       csrf = randomBytes(24).toString("base64url");
     await this.transact((db) => {
-      if (!db.members.some((m) => m.userId === userId))
-        throw new ApiError(403, "Membership required");
+      accountFor(db, userId);
+      if (this.config.emailDemo && !db.accounts?.find(a => a.userId === userId)?.consent.contacts.email?.verified) throw new ApiError(403, "Verify your email to sign in");
       db.sessions = db.sessions.filter((s) => s.expiresAt > Date.now());
       db.sessions.push({
         mode: this.config.mode,
@@ -191,7 +217,7 @@ export class GameService {
           s.tokenHash === hash(token) &&
           s.expiresAt > Date.now() &&
           (s.mode ?? "demo") === this.config.mode &&
-          (this.config.mode === "demo" || s.role === "player"),
+          (this.simulated || s.role === "player"),
       ) ?? null
     );
   }
@@ -200,36 +226,9 @@ export class GameService {
     email?: string;
     emailVerified?: boolean;
   }) {
-    const snapshot = await this.readDb();
-    const member = snapshot.members.find((m) => m.auth0Sub === identity.sub);
-    if (!member)
-      throw new ApiError(
-        403,
-        "An operator must invite this verified Auth0 identity to the private league",
-      );
-    const email = member.consent.contacts.email;
-    if (
-      identity.emailVerified &&
-      identity.email &&
-      email?.destination.toLowerCase() === identity.email.toLowerCase() &&
-      (!email.verified || email.method !== "auth0")
-    ) {
-      await this.transact((db) => {
-        const current = db.members.find((m) => m.auth0Sub === identity.sub);
-        if (
-          current?.consent.contacts.email?.destination.toLowerCase() ===
-          identity.email!.toLowerCase()
-        )
-          current.consent.contacts.email = {
-            destination: identity.email!,
-            verified: true,
-            method: "auth0",
-            verifiedAt: Date.now(),
-          };
-      });
-    }
-    return member.userId;
+    return ensureIdentityAccount(this, identity);
   }
+
   private localContactParts(timestamp: number, timezone: string) {
     const parts = Object.fromEntries(
       new Intl.DateTimeFormat("en-CA", {
@@ -299,7 +298,7 @@ export class GameService {
         ? ["ticket", "music", "concert", "event", "upgrade"]
         : templateId === "parcel-update"
           ? ["parcel", "deliver", "package", "order", "shopping", "board game"]
-          : [
+          : templateId === "game-night" ? [
               "walk",
               "trail",
               "outdoor",
@@ -307,7 +306,7 @@ export class GameService {
               "hiking",
               "guest list",
               "game night",
-            ];
+            ] : [];
     const visible = [
       content.subject,
       content.senderDisplayName,
@@ -317,7 +316,10 @@ export class GameService {
     ]
       .join(" ")
       .toLowerCase();
-    return this.member(db, recipientId).consent.excludedThemes.find((theme) => {
+    const consent = this.member(db, recipientId).consent;
+    const familyFriendly = consent.familyFriendly || db.leagues?.find((league) => league.id === db.match.leagueId)?.settings.familyFriendly;
+    if (familyFriendly && containsStrongLanguage(visible)) return "strong language (family-friendly filter)";
+    return consent.excludedThemes.find((theme) => {
       const excluded = theme.toLowerCase().trim();
       return (
         excluded.length > 0 &&
@@ -407,6 +409,7 @@ export class GameService {
   async state(session: Session): Promise<PlayerState> {
     const db = await this.readDb();
     const userId = session.userId;
+    if (!db.match.players.includes(userId) || db.leagues?.find(l => l.id === db.match.leagueId)?.archivedAt) return setupState(db, session, this.config.mode, this.now(db));
     const member = this.member(db, userId);
     const me = leagueProfile(db, userId, db.match.leagueId);
     const opponent = leagueProfile(db, db.match.players.find((p) => p !== userId)!, db.match.leagueId);
@@ -416,6 +419,7 @@ export class GameService {
       (a, b) => b.leaguePoints - a.leaguePoints || a.name.localeCompare(b.name),
     );
     return {
+      setupStage: member.consent.acceptedAt ? "ready" : "player",
       castRules: { version: emailGame(db) ? "email-casts-v2" : "multichannel-v1", regularLimit: emailGame(db) ? 2 : 3, spearLimit: emailGame(db) ? 1 : 0, spearUsed: spearUses(db, userId).length, spearRemaining: emailGame(db) ? Math.max(0, 1 - spearUses(db, userId).length) : 0 },
       mode: this.config.mode,
       selectedLeagueId: session.selectedLeagueId ?? db.userSelections?.[userId]?.leagueId ?? db.match.leagueId,
@@ -442,6 +446,8 @@ export class GameService {
           kind: s.kind,
           slot: s.slot,
           contentPolicy: s.contentPolicy,
+          authorPrompt: s.authorPrompt,
+          voiceAudio: publicVoiceAudio(s, this.providerEnv()),
           channel: s.channel,
           templateId: s.templateId,
           interest: s.interest,
@@ -585,7 +591,9 @@ export class GameService {
   async setPaused(userId: string, paused: boolean) {
     await this.transact((db) => {
       const members = db.members.filter((m) => m.userId === userId);
-      if (!members.length) throw new ApiError(404, "Membership not found");
+      const account = db.accounts?.find(a => a.userId === userId);
+      if (account) account.consent.paused = paused;
+      if (!members.length && !account) throw new ApiError(404, "Membership not found");
       for (const member of members) member.consent.paused = paused;
       if (paused) for (const pool of gamePools(db))
         for (const job of pool.jobs.filter(
@@ -611,21 +619,42 @@ export class GameService {
       if (!recipient.consent.channels[input.channel])
         throw new ApiError(409, "Recipient has not enabled this channel");
       const scouting = getScouting(db, userId, recipient.userId);
-      if (!scouting.interests.includes(input.interest))
+      const promptBased = input.authorPrompt !== undefined;
+      const messageBased = emailGame(db) && input.channel !== "email";
+      if (promptBased && !emailGame(db)) throw new ApiError(400, "Prompt-based casts are available in new weekly matches.");
+      if (messageBased && !promptBased) throw new ApiError(400, "Describe your idea for this text or voice cast.");
+      if (!promptBased && (!input.interest || !input.templateId || !scouting.interests.includes(input.interest)))
         throw new ApiError(400, "Choose an interest before creating your message");
+      const authorPrompt = input.authorPrompt?.trim();
+      const templateId = promptBased ? "sender-prompt" : input.templateId!;
+      // Retained only for old persisted schemas; it never enters a v3 model prompt.
+      const interest = promptBased ? "Board games" : input.interest!;
+      const fixture = messageBased ? messagePromptFallback(authorPrompt!, input.channel as "sms" | "voice") : promptBased ? emailPromptFallback(authorPrompt!) : fixtureContent(input.channel, templateId, true);
       const league = db.leagues?.find((l) => l.id === db.match.leagueId);
       if (league && !league.settings.channels[input.channel]) throw new ApiError(409, "This league has disabled that channel");
       this.enforceExclusions(
         db,
         recipient.userId,
-        input.templateId,
-        fixtureContent(input.channel, input.templateId, true),
+        templateId,
+        fixture,
       );
       const cast = emailGame(db) ? castDraft(db, userId, input) : null;
-      if (!cast && (input.kind || input.slot || prepared)) throw new ApiError(400, "Cast slots are available in new email matches.");
+      if (!cast && (input.kind || input.slot || prepared)) throw new ApiError(400, "Cast slots are available in new weekly matches.");
       let scenario = cast ? cast.draft : db.scenarios.find(
         (s) => s.authorId === userId && s.channel === input.channel,
       );
+      if (input.refinement || input.previousDraft) {
+        if (!cast || !scenario || prepared || !input.refinement || !input.previousDraft)
+          throw new ApiError(400, "Generate a cast first, then describe the change you want.");
+        if (scenario.channel !== input.channel) throw new ApiError(400, "Choose the new medium before refining its draft.");
+        if (!promptBased && templateId !== scenario.templateId)
+          throw new ApiError(400, "Keep the same story while refining an email.");
+        validateScoutingMarkdown(input.refinement);
+        const previous = contentSchema.parse(messageBased ? messagePromptTeachingContent({ ...fixture, ...input.previousDraft }, input.channel) : promptBased ? emailPromptTeachingContent({ ...fixture, ...input.previousDraft }) : emailTeachingContent({ ...scenario.content, ...input.previousDraft }, scenario.templateId));
+        if (!contentReview(previous).valid || !(messageBased ? messagePromptContentValid(previous, input.channel) : promptBased ? emailPromptContentValid(previous) : emailContentConsistent(previous, scenario.templateId)))
+          throw new ApiError(400, "Keep a valid cast before asking for a new version.");
+        this.enforceExclusions(db, recipient.userId, templateId, previous);
+      }
       if (!scenario)
         scenario = this.scenario(
           db,
@@ -633,21 +662,26 @@ export class GameService {
           input.channel,
           true,
           userId,
-          input.templateId,
+          templateId,
         );
-      if (scenario.locked) throw new ApiError(409, "This draft is locked");
+      if (scenario.locked || scenario.releasedAt !== null || db.attempts.some(attempt => attempt.scenarioId === scenario.id)) throw new ApiError(409, "This draft is locked");
       if (scenario.generationStatus === "pending")
         throw new ApiError(409, "Generation is already queued");
       const limit = league?.settings.difficulty === "rookie" ? 5 : league?.settings.difficulty === "expert" ? 1 : 3;
       if (!prepared && scenario.generationAttempts >= limit)
         throw new ApiError(429, `${limit === 3 ? "Three" : limit} generation attempts used for this draft`);
-      scenario.interest = input.interest;
-      scenario.templateId = input.templateId;
-      if (cast) { scenario.kind = cast.kind; scenario.slot = cast.slot; scenario.contentPolicy = "email-narrative-v1"; }
+      invalidateVoiceDraft(scenario);
+      scenario.channel = input.channel;
+      scenario.interest = interest;
+      scenario.templateId = templateId;
+      if (authorPrompt !== undefined) scenario.authorPrompt = authorPrompt;
+      else delete scenario.authorPrompt;
+      if (cast) { scenario.kind = cast.kind; scenario.slot = cast.slot; scenario.contentPolicy = messageBased ? "message-prompt-v1" : promptBased ? "email-prompt-v3" : "email-narrative-v1"; }
+      if (promptBased) scenario.content = input.previousDraft ? messageBased ? messagePromptTeachingContent({ ...fixture, ...input.previousDraft }, input.channel) : emailPromptTeachingContent({ ...fixture, ...input.previousDraft }) : fixture;
       if (prepared) {
-        scenario.content = emailTeachingContent(fixtureContent("email", input.templateId, true), input.templateId);
-        scenario.source = "fixture"; scenario.model = "reviewed-fixture"; scenario.promptVersion = "email-narrative-v1";
-        scenario.generationStatus = "complete"; scenario.generationReason = "Prepared starting point for your handwritten email.";
+        scenario.content = promptBased ? fixture : emailTeachingContent(fixture, templateId);
+        scenario.source = "fixture"; scenario.model = "reviewed-fixture"; scenario.promptVersion = scenario.contentPolicy ?? "email-narrative-v1";
+        scenario.generationStatus = "complete"; scenario.generationReason = "Prepared starting point for your handwritten cast.";
         return { scenarioId: scenario.id, queued: false };
       }
       scenario.generationAttempts++;
@@ -661,6 +695,15 @@ export class GameService {
         leaseExpiresAt: null,
         attempts: 0,
         idempotencyKey: `generation:${scenario.id}:${scenario.generationAttempts}`,
+        generationInput: {
+          policy: scenario.contentPolicy,
+          channel: scenario.channel,
+          interest: scenario.interest,
+          templateId: scenario.templateId,
+          fixture,
+          ...(promptBased ? { authorPrompt } : { scouting: { interest, markdown: scouting.markdown } }),
+          ...(input.refinement ? { refinement: input.refinement, previousDraft: structuredClone(input.previousDraft!) } : {}),
+        },
       });
       return { scenarioId: scenario.id, queued: true };
     });
@@ -682,47 +725,100 @@ export class GameService {
         throw new ApiError(409, "Draft cannot be changed now");
       let content = contentSchema.parse({ ...draft.content, ...input });
       if (draft.contentPolicy === "email-narrative-v1") content = emailTeachingContent(content, draft.templateId);
+      if (draft.contentPolicy === "email-prompt-v3") content = emailPromptTeachingContent(content);
+      if (draft.contentPolicy === "message-prompt-v1") content = messagePromptTeachingContent(content, draft.channel);
       const review = contentReview(content);
-      if (!review.valid || !(draft.contentPolicy === "email-narrative-v1" ? emailContentConsistent(content, draft.templateId) : scenarioConsistent(content, draft.templateId)))
+      if (!review.valid || !this.validDraftContent(draft, content))
         throw new ApiError(
           400,
-          review.reason ?? "Keep the approved scenario and learning cue intact",
+          review.reason ?? (draft.contentPolicy === "email-prompt-v3" ? "Keep the email friendly and free of destinations, credentials, and payments." : "Keep the approved scenario and learning cue intact"),
         );
       this.enforceExclusions(db, draft.recipientId, draft.templateId, content);
+      if (JSON.stringify(content) !== JSON.stringify(draft.content)) invalidateVoiceDraft(draft);
       draft.content = content;
     });
   }
   async lock(userId: string, id: string) {
-    await this.transact((db) => {
-      this.editable(db);
-      const draft = db.scenarios.find(
-        (s) => s.id === id && s.authorId === userId,
-      );
+    await this.transact(db => this.lockDraft(db, userId, id));
+  }
+  private validDraftContent(draft: Scenario, content = draft.content) {
+    return draft.contentPolicy === "message-prompt-v1" ? messagePromptContentValid(content, draft.channel)
+      : draft.contentPolicy === "email-prompt-v3" ? emailPromptContentValid(content)
+      : draft.contentPolicy === "email-narrative-v1" ? emailContentConsistent(content, draft.templateId)
+      : scenarioConsistent(content, draft.templateId);
+  }
+  private lockDraft(db: Database, userId: string, id: string) {
+    this.editable(db);
+    const draft = db.scenarios.find(s => s.id === id && s.authorId === userId);
+    if (!draft) throw new ApiError(404, "Draft not found");
+    if (draft.locked) return;
+    if (draft.generationStatus === "pending" || draft.generationStatus === "failed")
+      throw new ApiError(409, "Finish a valid draft before sending");
+    const review = contentReview(draft.content);
+    if (!review.valid || !this.validDraftContent(draft))
+      throw new ApiError(400, review.reason ?? "Content review failed");
+    this.enforceExclusions(db, draft.recipientId, draft.templateId, draft.content);
+    if (draft.channel === "voice" && draft.contentPolicy === "message-prompt-v1" && !voiceAudioApproved(draft)) throw new ApiError(409, "Generate, preview and approve the voice audio before sending.");
+    if (emailGame(db)) reserveSpear(db, draft, this.now(db));
+    draft.locked = true;
+    if (emailGame(db) && db.match.state === "active") this.enqueueCast(db, draft);
+  }
+  /** The button and background worker share the same durable delivery lease. */
+  async sendCast(userId: string, id: string) {
+    if (!this.immediateDelivery) throw new ApiError(409, "This app uses scheduled delivery. Make the bait ready and start the week.");
+    const job = await this.transact(db => {
+      this.member(db, userId);
+      if (!emailGame(db)) throw new ApiError(409, "Immediate sending is available for weekly cast matches.");
+      if (db.leagues?.find(league => league.id === db.match.leagueId)?.archivedAt) throw new ApiError(404, "League not found");
+      const draft = db.scenarios.find(scenario => scenario.id === id && scenario.authorId === userId);
       if (!draft) throw new ApiError(404, "Draft not found");
-      if (draft.locked) return;
-      if (draft.generationStatus === "pending" || draft.generationStatus === "failed")
-        throw new ApiError(409, "Finish a valid draft before sending");
-      const review = contentReview(draft.content);
-      if (!review.valid || !(draft.contentPolicy === "email-narrative-v1" ? emailContentConsistent(draft.content, draft.templateId) : scenarioConsistent(draft.content, draft.templateId)))
-        throw new ApiError(400, review.reason ?? "Content review failed");
-      this.enforceExclusions(
-        db,
-        draft.recipientId,
-        draft.templateId,
-        draft.content,
-      );
-      if (emailGame(db)) reserveSpear(db, draft, this.now(db));
-      draft.locked = true;
-      if (emailGame(db) && db.match.state === "active") this.enqueueCast(db, draft);
+      // A retry acknowledges the original operation. Even an unknown or failed
+      // submission never creates another attempt for the same cast.
+      const existing = db.jobs.find(item => item.type === "delivery" && item.scenarioId === id);
+      if (db.attempts.some(attempt => attempt.scenarioId === id) || (existing && existing.status !== "queued")) return null;
+      this.editable(db);
+      if (!db.match.players.every(playerId => {
+        const member = this.member(db, playerId);
+        return member.accepted && member.consent.adult && member.consent.acceptedAt !== null;
+      })) throw new ApiError(409, "Both players must finish player setup before sending.");
+      const recipient = this.member(db, draft.recipientId);
+      if (recipient.consent.paused || !recipient.consent.channels[draft.channel] || !(db.leagues?.find(league => league.id === db.match.leagueId)?.settings.channels[draft.channel] ?? true))
+        throw new ApiError(409, "The recipient must enable this medium and unpause delivery before you send.");
+      this.enforceExclusions(db, draft.recipientId, draft.templateId, draft.content);
+      if (!this.simulated) {
+        const readiness = this.readiness(db, draft.recipientId).find(row => row.channel === draft.channel);
+        if (readiness?.status !== "ready" && readiness?.status !== "simulated") throw new ApiError(409, `This cast cannot be sent yet: ${readiness?.reason ?? "recipient readiness is unavailable"}.`);
+      }
+      this.lockDraft(db, userId, id);
+      if (db.match.state === "drafting") {
+        db.match.startedAt = this.now(db);
+        db.match.deadline = this.now(db) + this.config.matchDurationMinutes * 60000;
+        db.match.state = "active";
+      }
+      this.enqueueCast(db, draft);
+      const selected = db.jobs.find(item => item.type === "delivery" && item.scenarioId === id)!;
+      selected.dueAt = this.now(db);
+      selected.status = "leased";
+      selected.leaseExpiresAt = this.now(db) + 45000;
+      selected.attempts++;
+      return selected;
     });
+    if (job) await this.runDelivery(job);
+    const db = await this.readDb();
+    const draft = db.scenarios.find(scenario => scenario.id === id && scenario.authorId === userId);
+    if (!draft) throw new ApiError(410, "This cast is no longer available.");
+    const attempt = db.attempts.filter(item => item.scenarioId === id).at(-1);
+    const current = db.jobs.find(item => item.type === "delivery" && item.scenarioId === id);
+    return { scenarioId: id, status: attempt?.status ?? (current?.status === "unknown" ? "unknown" : draft.deliveryStatus),
+      reason: attempt?.reason ?? (current?.status === "leased" ? "This cast is already being submitted. Its status will update shortly." : undefined) };
   }
   private enqueueCast(db: Database, scenario: Scenario) {
     if (db.jobs.some(job => job.type === "delivery" && job.scenarioId === scenario.id)) return;
     const earlier = db.jobs.filter(job => job.type === "delivery" && db.scenarios.some(s => s.id === job.scenarioId && s.recipientId === scenario.recipientId));
     const previous = earlier.length ? Math.max(...earlier.map(job => job.dueAt)) : undefined;
     const earliest = Math.max(this.now(db) + 60000, previous === undefined ? 0 : previous + 60000);
-    const dueAt = this.config.mode === "demo" ? earliest : this.nextContactTime(db, scenario.recipientId, earliest, previous);
-    if (dueAt >= db.match.deadline || (this.config.mode === "live" && dueAt + 3600000 > db.match.deadline)) throw new ApiError(409, "No contact window remains for this cast before the week ends.");
+    const dueAt = this.immediateDelivery ? this.now(db) : this.simulated ? earliest : this.nextContactTime(db, scenario.recipientId, earliest, previous);
+    if (dueAt >= db.match.deadline || (!this.immediateDelivery && !this.simulated && dueAt + 3600000 > db.match.deadline)) throw new ApiError(409, "No contact window remains for this cast before the week ends.");
     scenario.order = earlier.length; scenario.tokenExpiresAt = db.match.deadline;
     db.jobs.push({ id: randomUUID(), type: "delivery", scenarioId: scenario.id, dueAt, status: "queued", leaseExpiresAt: null, attempts: 0, idempotencyKey: `delivery:${scenario.id}` });
   }
@@ -742,8 +838,8 @@ export class GameService {
           "Both players must personally enroll before activation",
         );
       if (emailGame(db)) {
-        const casts = db.scenarios.filter(s => s.authorId && s.locked && s.channel === "email");
-        if (!casts.length) throw new ApiError(409, "Prepare at least one email cast to start the week.");
+        const casts = db.scenarios.filter(s => s.authorId && s.locked);
+        if (!casts.length) throw new ApiError(409, "Prepare at least one cast to start the week.");
         for (const cast of casts) this.enforceExclusions(db, cast.recipientId, cast.templateId, cast.content);
         db.match.startedAt = this.now(db);
         db.match.deadline = this.now(db) + this.config.matchDurationMinutes * 60000;
@@ -792,12 +888,12 @@ export class GameService {
             ? previous + 60000
             : this.now(db) + (i + 1) * 60000;
           const dueAt =
-            this.config.mode === "demo"
+            this.simulated
               ? this.now(db) + (i + 1) * 60000
               : this.nextContactTime(db, recipient, earliest, previous);
           const deadline =
             this.now(db) + this.config.matchDurationMinutes * 60000;
-          if (this.config.mode === "live" && dueAt + 60 * 60000 > deadline)
+          if (!this.simulated && dueAt + 60 * 60000 > deadline)
             throw new ApiError(
               409,
               "Live matches need at least two recipient contact days plus response time. Increase MATCH_DURATION_MINUTES (4320 recommended).",
@@ -898,7 +994,7 @@ export class GameService {
     });
   }
   async ignore(userId: string, id: string) {
-    if (this.config.mode !== "demo")
+    if (!this.simulated)
       throw new ApiError(
         403,
         "Live transport status is controlled by the provider",
@@ -922,8 +1018,9 @@ export class GameService {
     });
   }
   private unresolvedDeliveries(db: Database) {
-    return this.config.mode === "live" && db.scenarios.some(s =>
+    return !this.simulated && db.scenarios.some(s =>
       (!emailGame(db) || s.locked) && !db.decisions.some(d => d.scenarioId === s.id) &&
+      !(emailGame(db) && db.attempts.some(a => a.scenarioId === s.id && a.provider === "smtp" && a.receiptStatus === "bounced")) &&
       !(emailGame(db) ? ["delivered", "unanswered", "cancelled"] : ["delivered", "unanswered"]).includes(s.deliveryStatus));
   }
   private finalizeDb(db: Database) {
@@ -980,18 +1077,26 @@ export class GameService {
   async finalize() {
     await this.transact((db) => this.finalizeDb(db));
   }
-  async reset() {
-    if (this.config.mode !== "demo")
+  /** Receipt ingress only reconciles ended matches; it never dispatches queued mail. */
+  async settleEmailReceipts() {
+    await this.transact((db) => {
+      if (["active", "resolving"].includes(db.match.state) && this.now(db) >= db.match.deadline)
+        this.finalizeDb(db);
+    });
+  }
+  async reset(fresh = false) {
+    if (!this.simulated)
       throw new ApiError(403, "Demo controls disabled in live mode");
     await this.transact((db) => {
       const sessions = db.sessions;
-      Object.assign(db, createSeed(Date.now()));
-      db.sessions = sessions;
+      for (const key of Object.keys(db)) delete (db as unknown as Record<string, unknown>)[key];
+      Object.assign(db, fresh ? createFreshSeed(Date.now()) : createSeed(Date.now()));
+      db.sessions = fresh ? [] : sessions;
       if (this.config.ruleSet === "email-casts-v2") initializeEmailRules(db, this.now(db));
     });
   }
   async advance(minutes: number) {
-    if (this.config.mode !== "demo")
+    if (!this.simulated)
       throw new ApiError(403, "Demo controls disabled in live mode");
     await this.transact((db) => {
       db.clockOffset += minutes * 60000;
@@ -999,7 +1104,7 @@ export class GameService {
     await this.tickAll();
   }
   async release(recipientId?: string, all = false) {
-    if (this.config.mode !== "demo")
+    if (!this.simulated)
       throw new ApiError(403, "Demo controls disabled in live mode");
     await this.transact((db) => {
       if (db.match.state !== "active")
@@ -1121,23 +1226,26 @@ export class GameService {
     const db = await this.readDb(),
       s = db.scenarios.find((s) => s.id === job.scenarioId);
     if (!s) return;
+    const promptBased = s.contentPolicy === "email-prompt-v3" || s.contentPolicy === "message-prompt-v1";
+    const originalContent = job.generationInput?.fixture ?? (promptBased ? s.content : fixtureContent(s.channel, s.templateId, true));
     let result: GenerationResult;
     try {
-      result = await generateContent({
+      const generate = s.contentPolicy === "message-prompt-v1" ? generateMessageLure : generateContent;
+      result = await generate(job.generationInput ?? {
         policy: s.contentPolicy,
         channel: s.channel,
         interest: s.interest,
         templateId: s.templateId,
-        fixture: fixtureContent(s.channel, s.templateId, true),
-        ...(s.authorId ? { scouting: { interest: s.interest, markdown: getScouting(db, s.authorId, s.recipientId).markdown } } : {}),
+        fixture: originalContent,
+        ...(promptBased ? { authorPrompt: s.authorPrompt } : s.authorId ? { scouting: { interest: s.interest, markdown: getScouting(db, s.authorId, s.recipientId).markdown } } : {}),
       });
     } catch {
       result = {
-        content: fixtureContent(s.channel, s.templateId, true),
+        content: originalContent,
         source: "fallback" as const,
         model: "reviewed-fixture",
-        promptVersion: "v1",
-        reason: "Generation unavailable; reviewed fixture used",
+        promptVersion: promptBased ? s.contentPolicy! : "v1",
+        reason: promptBased ? "Generation unavailable; the prepared draft around your topic was kept." : "Generation unavailable; reviewed fixture used",
       };
     }
     await this.transact((db) => {
@@ -1157,7 +1265,7 @@ export class GameService {
           result.content,
         )
       ) {
-        const fallback = fixtureContent(draft.channel, draft.templateId, true);
+        const fallback = promptBased ? originalContent : fixtureContent(draft.channel, draft.templateId, true);
         if (
           this.exclusionReason(
             db,
@@ -1168,7 +1276,7 @@ export class GameService {
         ) {
           draft.generationStatus = "failed";
           draft.generationReason =
-            "Recipient excluded this theme; choose another scenario.";
+            "Recipient excluded this theme; choose another cast idea.";
           current.status = "failed";
           current.leaseExpiresAt = null;
           return;
@@ -1181,6 +1289,7 @@ export class GameService {
             "Generated wording overlapped an excluded theme; reviewed fixture used.",
         };
       }
+      invalidateVoiceDraft(draft);
       draft.content = result.content;
       draft.source = result.source;
       draft.model = result.model;
@@ -1196,13 +1305,15 @@ export class GameService {
     const prepared = await this.transact((db) => {
       const current = db.jobs.find((j) => j.id === job.id),
         s = db.scenarios.find((s) => s.id === job.scenarioId);
-      if (!current || !s) return null;
+      if (!current || current.status !== "leased" || !s || db.attempts.some(attempt => attempt.scenarioId === s.id)) return null;
       const m = this.member(db, s.recipientId);
       const readiness = this.readiness(db, s.recipientId).find(
         (r) => r.channel === s.channel,
       );
+      const simulated = readiness?.status === "simulated";
       const eligible =
         db.match.state === "active" &&
+        !db.leagues?.find(league => league.id === db.match.leagueId)?.archivedAt &&
         this.now(db) < db.match.deadline &&
         m.accepted &&
         m.consent.adult &&
@@ -1210,13 +1321,14 @@ export class GameService {
         m.consent.channels[s.channel] &&
         (db.leagues?.find((l) => l.id === db.match.leagueId)?.settings.channels[s.channel] ?? true) &&
         s.locked &&
+        (s.channel !== "voice" || s.contentPolicy !== "message-prompt-v1" || voiceAudioApproved(s)) &&
         !this.exclusionReason(db, s.recipientId, s.templateId, s.content);
       if (!eligible) {
         current.status = "cancelled";
         s.deliveryStatus = "cancelled";
         return null;
       }
-      if (this.config.mode === "live" && readiness?.status !== "ready") {
+      if (!simulated && readiness?.status !== "ready") {
         current.status = "failed";
         s.deliveryStatus = "failed";
         db.attempts.push({
@@ -1234,18 +1346,24 @@ export class GameService {
         return null;
       }
       const id = randomUUID();
+      const destination = m.consent.contacts[s.channel]?.destination ?? `fictional-${s.recipientId}`;
       db.attempts.push({
         id,
         scenarioId: s.id,
         recipientId: s.recipientId,
         channel: s.channel,
         provider:
-          this.config.mode === "demo"
+          simulated
             ? "simulator"
             : s.channel === "email"
               ? "smtp"
               : "twilio",
         status: "queued",
+        ...(!simulated && s.channel === "email" ? {
+          recipientAddressHash: emailRecipientHash(destination),
+          providerId: smtpMessageId(id, process.env.SMTP_FROM ?? ""),
+        } : {}),
+        ...(!simulated && s.channel !== "email" ? { recipientPhoneHash: phoneDestinationHash(destination) } : {}),
         createdAt: this.now(db),
         updatedAt: this.now(db),
         callbackIds: [],
@@ -1253,9 +1371,7 @@ export class GameService {
       return {
         id,
         scenario: s,
-        destination:
-          m.consent.contacts[s.channel]?.destination ??
-          `fictional-${s.recipientId}`,
+        destination,
       };
     });
     if (!prepared) return;
@@ -1281,9 +1397,9 @@ export class GameService {
       });
       return;
     }
-    let result;
-    try {
-      result = await dispatch(
+    let submissionTimeout: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
+    const submission = dispatch(
         {
           attemptId: prepared.id,
           scenarioId: s.id,
@@ -1295,18 +1411,43 @@ export class GameService {
         },
         { db: fresh, now: this.now(fresh), reload: () => this.readDb() },
         this.providerEnv(),
-      );
-    } catch {
-      result = {
-        status: "unknown" as const,
+      ).catch((): DeliveryResult => ({
+        status: "unknown",
         reason: "Provider submission outcome unknown; automatic retry disabled",
-      };
+      }));
+    let result: DeliveryResult;
+    try {
+      result = await Promise.race([submission, new Promise<DeliveryResult>(resolve => {
+        submissionTimeout = setTimeout(() => {
+          timedOut = true;
+          resolve({ status: "unknown", reason: "Submission did not confirm within 25 seconds. It may have been sent; automatic retry is disabled." });
+        }, 25000);
+      })]);
+    } finally {
+      if (submissionTimeout) clearTimeout(submissionTimeout);
     }
+    await this.recordDeliveryOutcome(job.id, s.id, prepared.id, result);
+    // Keep evidence from the original submission if it acknowledges later.
+    // This does not start another provider request or allow a retry.
+    if (timedOut) void submission.then(late => this.recordDeliveryOutcome(job.id, s.id, prepared.id, late)).catch(() => undefined);
+  }
+  private async recordDeliveryOutcome(jobId: string, scenarioId: string, attemptId: string, result: DeliveryResult) {
     await this.transact((db) => {
-      const current = db.jobs.find((j) => j.id === job.id),
-        scenario = db.scenarios.find((item) => item.id === s.id),
-        attempt = db.attempts.find((a) => a.id === prepared.id);
+      const current = db.jobs.find((j) => j.id === jobId),
+        scenario = db.scenarios.find((item) => item.id === scenarioId),
+        attempt = db.attempts.find((a) => a.id === attemptId);
       if (!current || !scenario || !attempt) return;
+      // A receipt may beat the SMTP acknowledgement; later submission results
+      // must not erase authenticated delivery or bounce evidence.
+      if (attempt.receiptStatus) return;
+      if (attempt.provider === "twilio" && attempt.callbackIds.length) {
+        // Signed carrier evidence may arrive before create() acknowledges.
+        // Its assigned SID and transport status outrank that later response.
+        current.status = attempt.status === "failed" ? "failed" : attempt.status === "unknown" ? "unknown" : "complete";
+        current.leaseExpiresAt = null;
+        if (scenario.releasedAt === null && ["accepted", "delivered", "unanswered"].includes(attempt.status)) scenario.releasedAt = this.now(db);
+        return;
+      }
       current.status =
         result.status === "failed"
           ? "failed"
@@ -1315,7 +1456,7 @@ export class GameService {
             : "complete";
       current.leaseExpiresAt = null;
       attempt.status = result.status;
-      attempt.providerId = result.providerId;
+      attempt.providerId = result.providerId ?? attempt.providerId;
       attempt.reason = result.reason;
       attempt.updatedAt = this.now(db);
       scenario.deliveryStatus = result.status;
@@ -1332,6 +1473,7 @@ export class GameService {
     }
     if (
       !scenario ||
+      db.leagues?.find(l => l.id === db.match.leagueId)?.archivedAt ||
       scenario.tokenExpiresAt < this.now(db) ||
       db.match.state === "cancelled" ||
       scenario.deliveryStatus === "cancelled"

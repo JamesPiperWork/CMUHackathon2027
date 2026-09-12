@@ -55,6 +55,25 @@ async function active(service: GameService) {
   await service.activate("alex");
   await service.release(undefined, true);
 }
+test("HTTP sender notes accept arbitrary topics without a legacy hobby tag and prepare a topical email", async t => {
+  const { app, service, config, headers } = await setup(t);
+  config.ruleSet = "email-casts-v2";
+  await service.initializeRules();
+  await enroll(service);
+  const authorPrompt = "They enjoy chess. Invite them to a fictional puzzle afternoon.";
+  const saved = await app.inject({ method: "PUT", url: "/api/scouting/jordan", headers: headers("alex"), payload: { interests: [], markdown: authorPrompt } });
+  assert.equal(saved.statusCode, 200, saved.body);
+  assert.deepEqual(saved.json().interests, []);
+  assert.equal(saved.json().markdown, authorPrompt);
+  const prepared = await app.inject({ method: "POST", url: "/api/drafts/prepare", headers: headers("alex"), payload: { recipientMemberId: "jordan", channel: "email", kind: "regular", slot: 1, authorPrompt } });
+  assert.equal(prepared.statusCode, 200, prepared.body);
+  const state = (await app.inject({ url: "/api/state", headers: headers("alex") })).json();
+  assert.equal(state.drafts[0].contentPolicy, "email-prompt-v3");
+  assert.match(state.drafts[0].content.bodyText, /centered on chess/);
+  assert.equal(state.drafts[0].authorPrompt, authorPrompt);
+  const invalid = await app.inject({ method: "PUT", url: "/api/scouting/jordan", headers: headers("alex"), payload: { interests: ["Chess"], markdown: authorPrompt } });
+  assert.equal(invalid.statusCode, 400, "The old enum field cannot silently accept unrecognized values");
+});
 test("clean demo seed, issued sessions, scoped DTOs, private drafts and immutable answers", async (t) => {
   const { app, service, headers, repo, sessions } = await setup(t);
   assert.equal((await repo.read()).profiles.length, 8);

@@ -9,6 +9,7 @@ import {
   TextInput,
   View,
   type TextStyle,
+  type TextInputProps,
   type ViewStyle,
 } from "react-native";
 import Svg, { Circle, Path } from "react-native-svg";
@@ -326,6 +327,12 @@ export function Field({
   multiline = false,
   maxLength,
   help,
+  editable = true,
+  autoCapitalize,
+  keyboardType,
+  secureTextEntry,
+  autoComplete,
+  autoCorrect,
 }: {
   label: string;
   value: string;
@@ -334,6 +341,12 @@ export function Field({
   multiline?: boolean;
   maxLength?: number;
   help?: string;
+  editable?: boolean;
+  autoCapitalize?: TextInputProps["autoCapitalize"];
+  keyboardType?: TextInputProps["keyboardType"];
+  secureTextEntry?: boolean;
+  autoComplete?: TextInputProps["autoComplete"];
+  autoCorrect?: boolean;
 }) {
   return (
     <View style={{ gap: 7 }}>
@@ -346,6 +359,12 @@ export function Field({
         placeholderTextColor="#738993"
         multiline={multiline}
         maxLength={maxLength}
+        editable={editable}
+        autoCapitalize={autoCapitalize}
+        keyboardType={keyboardType}
+        secureTextEntry={secureTextEntry}
+        autoComplete={autoComplete}
+        autoCorrect={autoCorrect}
         style={[
           s.input,
           multiline && {

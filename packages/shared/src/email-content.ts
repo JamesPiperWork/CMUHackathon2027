@@ -57,3 +57,27 @@ export function emailTeachingContent(
     cueAnnotations.push("Urgency encourages a response before checking the original plan.");
   return { ...content, senderDisplayName: fact.sender, cueAnnotations, explanation: fact.explanation };
 }
+
+/** Free-context drafts have no invented booking/order facts to preserve. */
+export function emailPromptContentValid(content: ApprovedContent): boolean {
+  const text = `${content.subject}\n${content.bodyText}`;
+  return content.senderDisplayName === "Fantasy Phishing"
+    && !emailHasExternalDestination(text)
+    && !/\b(?:credentials?|password|passcode|one.time.code|otp|payment|pay|purchase|credit.card|bank.account|money|wire.transfer|donat(?:e|ion)|download|attachment)\b/i.test(text);
+}
+
+/** Teaching describes this email's wording, not fictional facts about a player. */
+export function emailPromptTeachingContent(content: ApprovedContent): ApprovedContent {
+  const text = `${content.subject}\n${content.bodyText}`;
+  const cueAnnotations = ["A relevant topic or familiar name does not establish who sent a message."];
+  if (/\b(?:respond|response|confirm|reserve|join|review|click|claim|accept|sign up|rsvp)\b/i.test(text))
+    cueAnnotations.push("The message asks you to take an action; check an unexpected request through a known route.");
+  if (/\b(?:ten minutes|ten-minute|10 minutes|immediately|act now|last chance|today|limited|last spot|before .*ends)\b/i.test(text))
+    cueAnnotations.push("Time pressure can encourage a response before checking the request.");
+  return {
+    ...content,
+    senderDisplayName: "Fantasy Phishing",
+    cueAnnotations,
+    explanation: "This is a fictional challenge from your consenting league. A message about something you enjoy can still be bait. Verify unexpected requests through a known route before acting; no booking, order, or prior interaction in this email is evidence of a real event.",
+  };
+}

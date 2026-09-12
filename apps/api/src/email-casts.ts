@@ -34,13 +34,12 @@ export function initializeEmailRules(db: Database, now: number) {
 }
 
 export function castDraft(db: Database, authorId: string, input: GenerateRequest) {
-  if (input.channel !== "email") throw new ApiError(400, "This match uses two email casts and an optional Spear.");
   const kind = input.kind ?? "regular";
   if (kind === "spear" && input.slot !== undefined) throw new ApiError(400, "A Spear does not use a regular cast slot.");
   const slot = kind === "regular" ? input.slot ?? 1 : undefined;
   const draft = db.scenarios.find(s => s.authorId === authorId && s.kind === kind && s.slot === slot);
   if (kind === "spear" && spearUses(db, authorId).some(use => use.scenarioId !== draft?.id)) throw new ApiError(409, "Your Spear has already been used this league season.");
-  if (!draft && kind === "regular" && db.scenarios.filter(s => s.authorId === authorId && s.kind === "regular").length >= 2) throw new ApiError(409, "You have used both email cast slots this week.");
+  if (!draft && kind === "regular" && db.scenarios.filter(s => s.authorId === authorId && s.kind === "regular").length >= 2) throw new ApiError(409, "You have used both cast slots this week across all media.");
   return { draft, kind, slot };
 }
 
@@ -55,7 +54,11 @@ export function reserveSpear(db: Database, draft: Scenario, now: number) {
 export function awardAvoidance(db: Database) {
   for (const scenario of db.scenarios) {
     const confirmedFlag = db.decisions.some(d => d.scenarioId === scenario.id && d.recipientId === scenario.recipientId && d.choice === "flag");
+    // Ringing, voicemail, no answer, or a completed call never prove that the
+    // player heard and identified a voice challenge. Only an explicit flag does.
+    if (scenario.channel === "voice" && !confirmedFlag) continue;
     if (!scenario.authorId || !scenario.locked || !scenario.isPhishing || scenario.releasedAt === null || (!confirmedFlag && !["simulated", "delivered", "unanswered"].includes(scenario.deliveryStatus))) continue;
+    if (!confirmedFlag && db.attempts.some(a => a.scenarioId === scenario.id && a.provider === "smtp" && a.receiptStatus === "delivered" && a.receiptOccurredAt !== undefined && a.receiptOccurredAt >= db.match.deadline)) continue;
     if (db.decisions.some(d => d.scenarioId === scenario.id && d.choice === "trust")) continue;
     if (db.scoreEvents.some(e => e.type === "avoidance" && e.sourceId === scenario.id && e.userId === scenario.recipientId)) continue;
     db.scoreEvents.push({ id: randomUUID(), sourceId: scenario.id, userId: scenario.recipientId, type: "avoidance", points: 1 });

@@ -28,14 +28,20 @@ import {
 } from "@fp/shared";
 import { personalizeFixture } from "./scouting.js";
 import { generateEmailLure } from "./email-lure.js";
+import { loopbackEmailDemo } from "./email-demo-config.js";
+import { registerEmailReceiptRoutes, smtpMessageId } from "./email-receipts.js";
+import { phoneDemoMode, publicHttpsOrigin } from "./phone-config.js";
+import { readVoiceFile, voiceAudioApproved, voiceConfiguration } from "./voice-audio.js";
 
 type Env = NodeJS.ProcessEnv;
 const digest = (value: string) =>
   createHash("sha256").update(value).digest("hex");
+export const phoneDestinationHash = (destination: string) => digest(destination);
 const flag = (env: Env, key: string) => env[key] === "true";
 const present = (env: Env, ...keys: string[]) =>
   keys.every((key) => Boolean(env[key]?.trim()));
-const isLive = (env: Env) => env.APP_MODE === "live";
+const emailDemo = (env: Env) => env.APP_MODE === "demo" && env.EMAIL_DELIVERY_MODE === "smtp-demo";
+const isLive = (env: Env) => env.APP_MODE === "live" || emailDemo(env);
 function allAttempts(db: Database): DeliveryAttempt[] {
   return [
     ...new Map(
@@ -269,6 +275,35 @@ export function getReadiness(
         detail:
           "Recorded ElevenLabs permission and fictional licensed stock voice; no voice cloning.",
       });
+    if (emailDemo(env)) {
+      const invitedEmails = (env.EMAIL_DEMO_RECIPIENTS ?? "").split(",").map(address => address.trim().toLowerCase()).filter(Boolean);
+      const accountEmail = (db.accounts?.find(account => account.userId === userId)?.consent ?? c)?.contacts.email;
+      const trialRecipients = (env.TWILIO_TRIAL_RECIPIENTS ?? "").split(",").map(value => value.trim()).filter(Boolean);
+      const replacements: Record<string, { name: string; ok: boolean; detail: string }> = channel !== "email" && phoneDemoMode(env) ? {
+        "Real sending authorized": { name: "Labeled phone demo enabled", ok: flag(env, "PHONE_DEMO_SEND_ENABLED") && flag(env, `ENABLE_PHONE_DEMO_${upper}`), detail: `PHONE_DEMO_SEND_ENABLED=true and ENABLE_PHONE_DEMO_${upper}=true authorize this channel only.` },
+        "Provider permission recorded": { name: "Game labeling", ok: true, detail: "Texts and calls identify Fantasy Phishing as a game simulation and offer a way to pause contact." },
+        "Registration recorded": { name: channel === "sms" ? "SMS sender registration" : "Twilio account eligibility", ok: (channel !== "sms" || present(env, "SMS_REGISTRATION_REFERENCE")) && (env.TWILIO_TRIAL_MODE === "false" || (env.TWILIO_TRIAL_MODE === "true" && Boolean(contact && trialRecipients.includes(contact.destination)))), detail: "Record SMS registration when texting. Set TWILIO_TRIAL_MODE explicitly; trial recipients must also be verified in Twilio Console and listed in TWILIO_TRIAL_RECIPIENTS." },
+        "Format supported": { name: "Disclosed game format", ok: true, detail: "The service supplies the game disclosure, response action and opt-out. No caller recording or voice cloning." },
+        "Public HTTPS": { name: "Public phone callbacks", ok: publicHttpsOrigin(env.API_ORIGIN) && publicHttpsOrigin(env.APP_ORIGIN) && publicHttpsOrigin(env.TWILIO_CALLBACK_BASE), detail: "Real calls and texts require public HTTPS app/API origins and TWILIO_CALLBACK_BASE. Localhost rehearsal can preview audio but cannot contact phones." },
+        "MongoDB and Auth0": { name: "Verified email account", ok: Boolean(accountEmail?.verified && ["verify", "auth0"].includes(accountEmail.method)), detail: "The phone belongs to a signed-in participant with a verified email account." },
+        "Adult league membership": { name: "Adult league membership", ok: Boolean(member?.accepted && c?.adult && c.acceptedAt && c.version), detail: "The participant personally accepted this private league's game setup." },
+        "Destination ownership": { name: "Verified participant phone", ok: Boolean(verified && contact?.method === "verify" && contact.evidence?.startsWith("twilio-verify:")), detail: "The recipient verifies their own phone through the app's Twilio Verify code flow before any real text or call." },
+        "Licensed stock audio": { name: "Configured stock voice", ok: voiceConfiguration(env).ready, detail: "Create, play and approve the exact script audio using the configured ElevenLabs stock voice before sending." },
+      } : {
+        ...(channel === "email" && db.match.ruleSet === "email-casts-v2" && flag(env, "EMAIL_DEMO_IMMEDIATE") ? {
+          "Contact window": { name: "Immediate email test", ok: true, detail: "Explicit immediate demo sends run when the sender presses Send, including outside contact hours." },
+          "Daily quota": { name: "Demo cast limits", ok: true, detail: "Immediate demo testing allows the week's two email casts and seasonal Spear without a daily delay. Each cast is submitted at most once." },
+        } : {}),
+        ...(loopbackEmailDemo(env) ? { "Public HTTPS": { name: "Local email rehearsal", ok: channel === "email", detail: "The app uses one loopback origin. Open emailed links on this computer; other devices need public HTTPS." } } : {}),
+        "Real sending authorized": { name: "Labeled email demo enabled", ok: channel === "email" && flag(env, "EMAIL_DEMO_SEND_ENABLED"), detail: "EMAIL_DEMO_SEND_ENABLED=true enables clearly identified game emails only." },
+        "Provider permission recorded": { name: "Game labeling", ok: channel === "email", detail: "The sender is Fantasy Phishing and every email is explicitly labeled as a game simulation." },
+        "Registration recorded": { name: "Registered game recipient", ok: Boolean(contact && (!invitedEmails.length || invitedEmails.includes(contact.destination.toLowerCase()))), detail: "Bait goes to the recipient's verified signup address. EMAIL_DEMO_RECIPIENTS optionally restricts invitations." },
+        "Format supported": { name: "Email-only demo", ok: channel === "email", detail: "Text and voice sending remain disabled in this mode." },
+        "MongoDB and Auth0": { name: "Verified email sign-in", ok: contact?.method === "verify" && verified, detail: "An expiring single-use email code verifies each account; this private pilot uses one API process." },
+        "Adult league membership": { name: "Adult league membership", ok: Boolean(member?.accepted && c?.adult && c.acceptedAt && c.version), detail: "The participant completed player setup and joined this private league." },
+      };
+      for (const [index, condition] of conditions.entries()) if (replacements[condition.name]) conditions[index] = replacements[condition.name];
+    }
     const missing = conditions.filter((x) => !x.ok);
     return {
       channel,
@@ -310,7 +345,7 @@ export async function generateContent(
   input: GenerationInput,
   options: { env?: Env; fetcher?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<GenerationResult> {
-  if (input.policy === "email-narrative-v1")
+  if (input.policy === "email-narrative-v1" || input.policy === "email-prompt-v3")
     return generateEmailLure(input, options);
   const env = options.env ?? process.env,
     model = env.GEMINI_MODEL || "gemini-2.5-flash";
@@ -435,7 +470,7 @@ export class SimulatorAdapter implements DeliveryAdapter {
       status: "simulated",
       providerId: `sim-${envelope.attemptId}`,
       reason:
-        "Stored in the explicitly labeled in-app simulator; no real message sent.",
+        "Recorded locally for testing; no real message sent.",
     };
   }
 }
@@ -467,22 +502,23 @@ export class SmtpAdapter implements DeliveryAdapter {
     try {
       const result = await send({
         from: {
-          name: e.content.senderDisplayName,
+          name: emailDemo(this.env) ? "Fantasy Phishing" : e.content.senderDisplayName,
           address: this.env.SMTP_FROM,
         },
         to: e.destination,
-        subject: e.content.subject,
-        text: [this.env.EMAIL_DISCLOSURE_TEXT, e.content.bodyText, e.actionUrl]
+        subject: emailDemo(this.env) ? `[Game simulation] ${e.content.subject}` : e.content.subject,
+        text: [emailDemo(this.env) ? "This is a Fantasy Phishing game simulation you agreed to receive. The story below is fictional. No passwords, payments, or personal information are requested." : this.env.EMAIL_DISCLOSURE_TEXT, e.content.bodyText, e.actionUrl, emailDemo(this.env) ? `Manage or pause game emails: ${this.env.APP_ORIGIN}/settings` : undefined]
           .filter(Boolean)
           .join("\n\n"),
-        messageId: `<${e.attemptId}@${this.env.SMTP_FROM?.split("@")[1]}>`,
+        messageId: smtpMessageId(e.attemptId, this.env.SMTP_FROM ?? ""),
+        headers: { "X-Fantasy-Phishing-Attempt": e.attemptId, "X-Fantasy-Phishing-Recipient": e.recipientId },
         disableFileAccess: true,
         disableUrlAccess: true,
       });
       if (result.accepted?.length)
         return {
           status: "accepted",
-          providerId: result.messageId,
+          providerId: result.messageId ?? smtpMessageId(e.attemptId, this.env.SMTP_FROM ?? ""),
           reason: "SMTP accepted submission; inbox delivery is unconfirmed.",
         };
       if (result.rejected?.length)
@@ -561,24 +597,24 @@ export class TwilioAdapter implements DeliveryAdapter {
               from: this.env.TWILIO_SMS_FROM,
               to: e.destination,
               body: [
-                this.env.SMS_DISCLOSURE_TEXT,
+                phoneDemoMode(this.env) ? "Fantasy Phishing game simulation. You opted in through your private league." : this.env.SMS_DISCLOSURE_TEXT,
                 e.content.smsText,
                 e.actionUrl,
                 "Reply STOP to pause future contact.",
               ]
                 .filter(Boolean)
                 .join("\n"),
-              statusCallback: `${base}/webhooks/twilio/status`,
+              statusCallback: `${base}/webhooks/twilio/status?attemptId=${encodeURIComponent(e.attemptId)}`,
             })
           : await client.calls.create({
               from: this.env.TWILIO_VOICE_FROM!,
               to: e.destination,
               twiml: voiceTwiml(
                 e.audioUrl!,
-                `${base}/webhooks/twilio/voice-decision`,
-                this.env.VOICE_DISCLOSURE_TEXT,
+                `${base}/webhooks/twilio/voice-decision?attemptId=${encodeURIComponent(e.attemptId)}`,
+                phoneDemoMode(this.env) ? "This is a Fantasy Phishing game simulation from your private league. You opted in to these calls." : this.env.VOICE_DISCLOSURE_TEXT,
               ),
-              statusCallback: `${base}/webhooks/twilio/status`,
+              statusCallback: `${base}/webhooks/twilio/status?attemptId=${encodeURIComponent(e.attemptId)}`,
               statusCallbackMethod: "POST",
               statusCallbackEvent: [
                 "initiated",
@@ -801,18 +837,20 @@ export async function dispatch(
       return {
         status: "failed",
         reason:
-          "Live voice requires a fresh consent check after audio generation.",
+          "Live voice requires a fresh consent check before the call.",
       };
     try {
+      if (!voiceAudioApproved(scenario, env) || !scenario.voiceAudio?.key) throw new Error("Audio is not approved");
+      await readVoiceFile(scenario.voiceAudio.key, env);
       envelope = {
         ...envelope,
-        audioUrl: await prepareVoiceAudio(envelope, { env }),
+        audioUrl: `${env.API_ORIGIN}/media/voice/${createAudioToken({ key: scenario.voiceAudio.key, scenarioId: envelope.scenarioId, attemptId: envelope.attemptId, recipientId: envelope.recipientId, expiresAt: context.now + 10 * 60000 }, env.TOKEN_SECRET ?? "")}`,
       };
     } catch {
       return {
         status: "failed",
         reason:
-          "Approved 15–25-second audio unavailable; no call was submitted.",
+          "Create, play and approve the current 15–25-second audio before sending. No call was submitted and no new audio was generated.",
       };
     }
     const latest = await context.reload(),
@@ -830,6 +868,8 @@ export async function dispatch(
       latest.match.state !== "active" ||
       latest.match.deadline <= now ||
       !current?.locked ||
+      !voiceAudioApproved(current, env) ||
+      current.voiceAudio?.key !== scenario.voiceAudio?.key ||
       current.tokenExpiresAt <= now ||
       current.deliveryStatus === "cancelled" ||
       recipient?.consent.contacts.voice?.destination !== envelope.destination
@@ -837,7 +877,7 @@ export async function dispatch(
       return {
         status: "failed",
         reason:
-          "Eligibility changed while audio was prepared; no call was submitted.",
+          "Eligibility changed before the call; no call was submitted.",
       };
   }
   return new TwilioAdapter(env).send(envelope);
@@ -892,6 +932,7 @@ interface ProviderService {
   ): Promise<unknown>;
   pauseUser(userId: string): Promise<void>;
   forScenario?(scenarioId: string): Promise<ProviderService>;
+  settleEmailReceipts?(): Promise<void>;
 }
 function paramsFrom(request: FastifyRequest) {
   if (
@@ -908,6 +949,7 @@ export function registerProviderRoutes(
   app: FastifyInstance,
   service: ProviderService,
 ) {
+  registerEmailReceiptRoutes(app, service);
   const verified = (request: FastifyRequest) => {
     const params = paramsFrom(request);
     const signature = request.headers["x-twilio-signature"];
@@ -921,6 +963,24 @@ export function registerProviderRoutes(
       return null;
     return params;
   };
+  const assignedAttempt = (db: Database, request: FastifyRequest, params: Record<string, string>, voiceOnly = false) => {
+    const query = request.query as { attemptId?: unknown };
+    if (query.attemptId !== undefined && (typeof query.attemptId !== "string" || query.attemptId.length > 128 || !query.attemptId)) return undefined;
+    if (Boolean(params.CallSid) === Boolean(params.MessageSid)) return undefined;
+    const channel = params.CallSid ? "voice" : "sms", sid = params.CallSid || params.MessageSid;
+    if (voiceOnly && channel !== "voice") return undefined;
+    return allAttempts(db).find(attempt => {
+      if (attempt.provider !== "twilio" || attempt.channel !== channel) return false;
+      if (query.attemptId !== undefined ? attempt.id !== query.attemptId || !attempt.recipientPhoneHash : attempt.providerId !== sid) return false;
+      if (attempt.providerId && attempt.providerId !== sid) return false;
+      if (allAttempts(db).some(other => other.id !== attempt.id && other.provider === "twilio" && other.providerId === sid)) return false;
+      if (attempt.recipientPhoneHash) return Boolean(params.To && attempt.recipientPhoneHash === phoneDestinationHash(params.To));
+      const leagueId = db.scenarios.some(scenario => scenario.id === attempt.scenarioId) ? db.match.leagueId : db.matchPools?.find(pool => pool.scenarios.some(scenario => scenario.id === attempt.scenarioId))?.match.leagueId;
+      const member = db.members.find(member => member.userId === attempt.recipientId && member.leagueId === leagueId);
+      const contact = member?.consent.contacts[channel];
+      return params.To === contact?.destination && (!voiceOnly || (contact.verified && contact.method !== "demo"));
+    });
+  };
   app.post("/webhooks/twilio/status", async (request, reply) => {
     const p = verified(request);
     if (!p)
@@ -928,28 +988,17 @@ export function registerProviderRoutes(
     const callbackId = digest(
       JSON.stringify(Object.entries(p).sort(([a], [b]) => a.localeCompare(b))),
     );
-    const known = allAttempts(await service.readDb()).find(
-      (a) =>
-        a.provider === "twilio" && a.providerId === (p.MessageSid || p.CallSid),
-    );
+    const known = assignedAttempt(await service.readDb(), request, p);
     if (!known)
       return reply.code(404).send({ error: "No assigned delivery attempt." });
     const scoped = service.forScenario
       ? await service.forScenario(known.scenarioId)
       : service;
     const outcome = await scoped.transact((db) => {
-      const attempt = db.attempts.find(
-        (a) =>
-          a.provider === "twilio" &&
-          a.providerId === (p.MessageSid || p.CallSid),
-      );
+      const matched = assignedAttempt(db, request, p);
+      const attempt = matched && db.attempts.find(item => item.id === matched.id);
       if (!attempt) return false;
-      const member = db.members.find(
-        (m) =>
-          m.userId === attempt.recipientId && m.leagueId === db.match.leagueId,
-      );
-      if (p.To !== member?.consent.contacts[attempt.channel]?.destination)
-        return false;
+      attempt.providerId ??= p.MessageSid || p.CallSid;
       if (
         attempt.callbackIds.includes(callbackId) ||
         db.callbackIds.includes(callbackId)
@@ -963,9 +1012,13 @@ export function registerProviderRoutes(
       );
       attempt.updatedAt = scoped.now(db);
       const scenario = db.scenarios.find((s) => s.id === attempt.scenarioId);
-      if (scenario) scenario.deliveryStatus = attempt.status;
+      if (scenario) {
+        scenario.deliveryStatus = attempt.status;
+        if (["accepted", "delivered", "unanswered"].includes(attempt.status)) scenario.releasedAt ??= scoped.now(db);
+      }
       return true;
     });
+    if (outcome) await scoped.settleEmailReceipts?.();
     return outcome
       ? reply.code(204).send()
       : reply.code(404).send({ error: "No assigned delivery attempt." });
@@ -997,12 +1050,7 @@ export function registerProviderRoutes(
     const p = verified(request);
     if (!p)
       return reply.code(403).send({ error: "Invalid provider signature." });
-    const known = allAttempts(await service.readDb()).find(
-      (a) =>
-        a.provider === "twilio" &&
-        a.channel === "voice" &&
-        a.providerId === p.CallSid,
-    );
+    const known = assignedAttempt(await service.readDb(), request, p, true);
     if (!known)
       return reply
         .code(403)
@@ -1010,13 +1058,25 @@ export function registerProviderRoutes(
     const scoped = service.forScenario
       ? await service.forScenario(known.scenarioId)
       : service;
+    const bound = await scoped.transact(db => {
+      const matched = assignedAttempt(db, request, p, true);
+      const attempt = matched && db.attempts.find(item => item.id === matched.id);
+      const scenario = db.scenarios.find(item => item.id === attempt?.scenarioId);
+      if (!attempt || !scenario) return false;
+      attempt.providerId ??= p.CallSid;
+      const callbackId = digest(`voice-decision:${JSON.stringify(Object.entries(p).sort(([a], [b]) => a.localeCompare(b)))}`);
+      if (!attempt.callbackIds.includes(callbackId)) attempt.callbackIds.push(callbackId);
+      if (p.Digits === "1" || p.Digits === "2") {
+        attempt.status = nextTransportStatus(attempt.status, "in-progress");
+        attempt.updatedAt = scoped.now(db);
+        scenario.deliveryStatus = attempt.status;
+        scenario.releasedAt ??= scoped.now(db);
+      }
+      return true;
+    });
+    if (!bound) return reply.code(403).send({ error: "Call does not match its assigned attempt." });
     const db = await scoped.readDb();
-    const attempt = db.attempts.find(
-      (a) =>
-        a.provider === "twilio" &&
-        a.channel === "voice" &&
-        a.providerId === p.CallSid,
-    );
+    const attempt = db.attempts.find(item => item.id === known.id);
     const member = db.members.find(
       (m) =>
         m.userId === attempt?.recipientId && m.leagueId === db.match.leagueId,
@@ -1026,9 +1086,7 @@ export function registerProviderRoutes(
       !attempt ||
       !member ||
       !scenario ||
-      p.To !== member.consent.contacts.voice?.destination ||
-      !member.consent.contacts.voice.verified ||
-      member.consent.contacts.voice.method === "demo"
+      (!attempt.recipientPhoneHash && (p.To !== member.consent.contacts.voice?.destination || !member.consent.contacts.voice?.verified || member.consent.contacts.voice.method === "demo"))
     )
       return reply
         .code(403)
@@ -1089,6 +1147,8 @@ export function registerProviderRoutes(
         !attempt ||
         !scenario ||
         scenario.recipientId !== scope.recipientId ||
+        scenario.voiceAudio?.key !== scope.key ||
+        !voiceAudioApproved(scenario) ||
         db.match.state !== "active" ||
         scenario.tokenExpiresAt <= scoped.now(db)
       )

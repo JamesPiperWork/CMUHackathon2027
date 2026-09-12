@@ -112,9 +112,9 @@ test("lightweight Markdown is inert and cannot supply destinations, secrets, sen
   ])
     assert.throws(() => validateScoutingMarkdown(unsafe), Error, unsafe);
   const db = createSeed();
-  assert.throws(() =>
-    saveScouting(db, "alex", "jordan", { interests: [], markdown: notes }, 1),
-  );
+  const freeContext = saveScouting(db, "alex", "jordan", { interests: [], markdown: "They enjoy chess and baking." }, 1);
+  assert.deepEqual(freeContext.interests, []);
+  assert.equal(getScouting(db, "alex", "jordan").markdown, "They enjoy chess and baking.");
   assert.throws(() =>
     saveScouting(
       db,

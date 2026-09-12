@@ -9,7 +9,7 @@ import { ScreenScrollContext } from "../src/screen-scroll";
 
 const tabs: [string, string, IconName][] = [
   ["/", "Home", "home"], ["/draft", "Bait", "hook"],
-  ["/activity", "Inbox", "activity"], ["/league", "League", "league"],
+  ["/league", "League", "league"],
 ];
 function Frame() {
   const wide = useWindowDimensions().width >= 950;
@@ -18,14 +18,15 @@ function Frame() {
   const scroll = useRef<ScrollView>(null);
   const scrollToTop = useCallback(() => { scroll.current?.scrollTo({ y: 0, animated: false }); }, []);
   useEffect(scrollToTop, [path, state?.me.id, state?.selectedLeagueId, scrollToTop]);
-  const selected = state?.leagues.find(league => league.id === state.selectedLeagueId);
-  const activeTab = ["/leagues", "/matchups", "/chat", "/wrapped"].includes(path) ? "/league" : path;
-  const unread = selected?.myMatchId ? state?.incoming.filter(message => !message.decision).length || 0 : 0;
+  const activeTab = ["/leagues", "/matchups", "/chat"].includes(path) ? "/league" : path;
+  const setupRedirect = state?.setupStage === "player" && !["/", "/settings"].includes(path) ? "/" : state && !state.leagues.length && !["/", "/settings", "/leagues"].includes(path) ? "/leagues" : null;
+  useEffect(() => { if (setupRedirect) router.replace(setupRedirect); }, [setupRedirect]);
+  const canNavigate = state && state.setupStage !== "player" && state.leagues.length > 0;
   const navigation = (bottom: boolean) => tabs.map(([href, label, icon]) => {
     const active = activeTab === href;
     return <Pressable key={href} accessibilityRole="link" accessibilityLabel={label} accessibilityState={{ selected: active }} onPress={() => router.push(href as "/")}
       style={({ pressed }) => ({ flex: bottom ? 1 : undefined, flexDirection: bottom ? "column" : "row", alignItems: "center", gap: bottom ? 5 : 13, paddingVertical: bottom ? 9 : 16, paddingHorizontal: bottom ? 3 : 17, borderRadius: 12, backgroundColor: !bottom && active ? C.tealDark : "transparent", opacity: pressed ? 0.65 : 1 })}>
-      <View style={{ position: "relative" }}><Icon name={icon} size={22} color={active ? C.teal : C.muted} />{href === "/activity" && unread > 0 && <View style={{ position: "absolute", top: -3, right: -5, width: 8, height: 8, borderRadius: 5, backgroundColor: C.coral }} />}</View>
+      <Icon name={icon} size={22} color={active ? C.teal : C.muted} />
       <Txt style={{ fontSize: bottom ? 12 : 15, fontWeight: active ? "700" : "500", color: active ? C.teal : C.muted }}>{label}</Txt>
     </Pressable>;
   });
@@ -39,21 +40,17 @@ function Frame() {
     </View>
     {!connected && state && <View style={{ paddingHorizontal: 20, paddingVertical: 7, backgroundColor: C.panel }}><Txt style={{ fontSize: 12, color: C.gold }}>Reconnecting… your saved progress is safe.</Txt></View>}
     <View style={{ flex: 1, flexDirection: "row" }}>
-      {wide && state && <View style={{ width: 194, padding: 16, borderRightWidth: 1, borderRightColor: C.border, gap: 8 }}><View style={{ height: 16 }} />{navigation(false)}<View style={{ flex: 1 }} /><Button small variant="ghost" icon="settings" onPress={() => router.push("/settings")}>Settings</Button>{state.role === "operator" && <Button small variant="ghost" onPress={() => router.push("/operator")}>Demo tools</Button>}</View>}
+      {wide && canNavigate && <View style={{ width: 194, padding: 16, borderRightWidth: 1, borderRightColor: C.border, gap: 8 }}><View style={{ height: 16 }} />{navigation(false)}<View style={{ flex: 1 }} /><Button small variant="ghost" icon="settings" onPress={() => router.push("/settings")}>Settings</Button>{state.role === "operator" && <Button small variant="ghost" onPress={() => router.push("/operator")}>Demo tools</Button>}</View>}
       <View style={{ flex: 1, minWidth: 0 }}>
-        {state && <View style={{ paddingHorizontal: wide ? 36 : 20, paddingVertical: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Choose league" onPress={() => router.push("/leagues")} style={{ flexDirection: "row", alignItems: "center", gap: 7, flexShrink: 1, minHeight: 30 }}><Txt muted style={{ fontSize: 13, flexShrink: 1 }}>{selected?.name || state.league.name}</Txt><Txt muted style={{ fontSize: 13 }}>⌄</Txt></Pressable>
-          {state.mode === "demo" && <Txt style={{ color: C.muted, fontSize: 11 }}>Practice mode</Txt>}
-        </View>}
-        <ScrollView ref={scroll} style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: wide ? 36 : 20, paddingTop: state ? 6 : 24, paddingBottom: 32, alignItems: "center" }} keyboardShouldPersistTaps="handled">
+        <ScrollView ref={scroll} style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: wide ? 36 : 20, paddingTop: 24, paddingBottom: 32, alignItems: "center" }} keyboardShouldPersistTaps="handled">
           <View style={{ width: "100%", maxWidth: 1050 }}>
             {Boolean(error) && <View accessibilityRole="alert" style={{ backgroundColor: "#382B2A", borderRadius: 12, padding: 16, gap: 10, marginBottom: 20 }}><Txt style={{ color: C.coral, lineHeight: 21, fontSize: 14 }}>{error}</Txt><Row><Button small variant="secondary" onPress={() => void safely(refresh())}>Retry</Button><Button small variant="ghost" onPress={clearError}>Dismiss</Button></Row></View>}
-            {loading ? <View style={{ paddingTop: 90, alignItems: "center", gap: 16 }}><ActivityIndicator color={C.teal} /><Txt muted>Getting things ready…</Txt></View> : <ScreenScrollContext.Provider value={scrollToTop}><Slot /></ScreenScrollContext.Provider>}
+            {loading || setupRedirect ? <View style={{ paddingTop: 90, alignItems: "center", gap: 16 }}><ActivityIndicator color={C.teal} /><Txt muted>Getting things ready…</Txt></View> : <ScreenScrollContext.Provider value={scrollToTop}><Slot /></ScreenScrollContext.Provider>}
           </View>
         </ScrollView>
       </View>
     </View>
-    {!wide && state && <View style={{ flexDirection: "row", borderTopWidth: 1, borderTopColor: C.border, paddingTop: 4, paddingBottom: 5, backgroundColor: C.panelDeep }}>{navigation(true)}</View>}
+    {!wide && canNavigate && <View style={{ flexDirection: "row", borderTopWidth: 1, borderTopColor: C.border, paddingTop: 4, paddingBottom: 5, backgroundColor: C.panelDeep }}>{navigation(true)}</View>}
   </SafeAreaView>;
 }
 export default function Layout() { return <SafeAreaProvider><SessionProvider><Frame /></SessionProvider></SafeAreaProvider>; }

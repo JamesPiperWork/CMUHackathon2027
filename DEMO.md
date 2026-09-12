@@ -1,47 +1,41 @@
-# Presenting Fantasy Phishing
+# Present Fantasy Phishing from fresh setup
 
-Use two fresh browser tabs with the desktop app and the Large/Compact phone preview. All sample accounts are synthetic. The simulator sends no real email.
+The app has three main pages: **Home, Bait, League**. A fresh installation has no accounts, leagues or drafts.
 
-## Start
-
-```sh
-npm ci
-npm run seed
-npm run dev
-```
-
-Open [desktop](http://localhost:8081) and [phone preview](http://localhost:3001/mobile-preview). Sign in as Alex and Jordan separately and accept email participation on both. Existing state is preserved by `seed`; an old active/completed match keeps its original rules. For a clean rehearsal, stop the server, run `npm run reset:demo`, and restart. Reset discards local synthetic league progress.
-
-## Three-minute walkthrough
-
-| Time | Action |
-| --- | --- |
-| 0:00–0:25 | Show Alex vs Jordan on Home. Explain two email casts per week and an optional seasonal Spear. |
-| 0:25–0:55 | Alex opens Bait → Cast 1, chooses an interest and optional private note, creates and reviews the email, then locks it. Without a Gemini key, its details identify prepared content. |
-| 0:55–1:15 | Start fishing. Alex can still prepare Cast 2 during the week. There are no automatically generated ordinary emails or missing-slot fillers. |
-| 1:15–1:40 | Release the simulated email in Demo tools, then Jordan opens Inbox and confirms Open link. Jordan loses 1; Alex gains 3. A reveal explains the cast. |
-| 1:40–2:10 | Show the Spear option and handwritten editor. Locking it uses one extra email for this league season. Release another cast, and let Jordan leave it untouched. |
-| 2:10–2:40 | Demo tools → Finish demo week advances simulated time to the deadline. Jordan earns +1 for each received cast left unclicked. Show final standings and Weekly Wrapped with saved email text. |
-| 2:40–3:00 | Explain real delivery: SMTP and verified participant identity are implemented behind configuration gates; this rehearsal used the simulator. |
-
-A normal week lasts 10080 minutes. The operator shortcut exists only in demo mode. The operator view can be accessed through the original local demo session endpoint or a practice account using `/operator`; its sign-in action obtains the scoped operator session. It cannot be used in live mode.
-
-## Optional finish shortcut
-
-After enrolling both players, preparing at least one Alex cast, and starting the original seeded Week 4 match:
+## Local interface rehearsal
 
 ```sh
-npm run demo:finish
+EMAIL_DELIVERY_MODE=simulated PHONE_DELIVERY_MODE=simulated EMAIL_DEMO_LOCAL_ONLY=false API_ORIGIN=http://localhost:3001 APP_ORIGIN=http://localhost:8081 EXPO_PUBLIC_API_ORIGIN=http://localhost:3001 DEMO_DATA_FILE=./data/demo.json npm run dev
 ```
 
-This local-only script signs in as fictional players through the normal API, releases queued casts, makes Jordan open one cast, and leaves other new-rule emails untouched. It then explicitly advances demo time to the weekly deadline and prints the saved result. It does not inspect hidden truth, fabricate points, or send real mail.
+Open [desktop](http://localhost:8081) or [Large/Compact phone preview](http://localhost:3001/mobile-preview). Delivery is simulated in this mode.
 
-With exactly two Alex-to-Jordan casts and no Jordan casts, the expected final score is **Alex 3, Jordan 0**: Jordan takes one (−1) and avoids the other (+1). Additional casts change totals according to their saved decisions. A Spear uses exactly the same scoring.
+1. Choose **Create account** and enter a name, email and password. Set email hours, topics to avoid and family-friendly preferences.
+2. Create a league, try its difficulty/settings, and copy its invite code.
+3. In a separate browser profile, create another account and join with the code. Both players start Week 1 with zero scores and no bait.
+4. Open **Bait**, choose Email, Text or Voice for the slot, describe your opponent and the angle you want, then generate one message. Edit it or ask for a revision. Move back and forward to check that your edits stay intact. With immediate delivery, choose **Send email now**. Scheduled mode instead saves the cast before **Start fishing**.
+5. Review outgoing status in Bait and the matchup in League. Local delivery stays labeled simulated; there is no inbox page or three-choice message picker.
 
-## Reliable fallback
+To repeat from account creation, use **Settings → Reset demo**, review the scope and confirm. This clears every local account and league. **Cancel** keeps progress. Alternatively stop the server and run `npm run reset:demo` before restarting.
 
-- No Gemini credentials: generate still returns a labeled, personalized prepared message.
-- No SMTP configuration: use the explicitly labeled simulator, never claim real inbox delivery.
-- Weekly Wrapped can replay and seek immediately; supported browsers can export a WebM through Save video.
-- Raw email links and previews never score. A signed-in participant must confirm the bait action. This avoids counting email scanners as players.
-- Incomplete live delivery cannot silently award avoidance points. SMTP acceptance alone requires later delivery evidence or participant action; see [INTEGRATIONS.md](INTEGRATIONS.md).
+## Real-inbox presentation on this computer
+
+Complete [EMAIL_DEMO_SETUP.md](EMAIL_DEMO_SETUP.md), stop the development server, then run:
+
+```sh
+npm run email:demo
+```
+
+The launcher checks SMTP without sending, builds, and opens the app/API at [localhost:3001](http://localhost:3001), with separate real-email storage. Use [the phone preview](http://localhost:3001/mobile-preview) for the presentation layouts. It stays bound to this computer; emailed links must be opened here. Public HTTPS hosting is optional for testing on other devices.
+
+Have two consenting participants verify their email addresses with signup codes, choose player preferences, and create/join a league. A blank `EMAIL_DEMO_RECIPIENTS` list uses verified signup addresses; a populated list restricts participants.
+
+Show signup → league → one editable bait email → actual inbox → authenticated response → score. The sender and message clearly identify the game. Merely opening or scanning the link never scores.
+
+The labeled immediate-email mode skips contact-hour and daily pacing delays, so both casts can be tested in one sitting. Actual phone sends retain their own documented readiness and contact limits. The organizer verified as `SMTP_USER` can use **Settings → Reset active leagues** between rehearsals. This archives leagues and preserves accounts, transport history and quotas; it cannot retract mail or replenish sending limits.
+
+Weekly untouched-email points require genuine receipt evidence. Gmail acceptance alone is insufficient, and the provider adapter upstream of the signed receipt relay remains separate work. Use the automated tests to explain duplicate protection, bounces and late settlement, identifying them as tests. See [TECHNICAL_ROADMAP.md](TECHNICAL_ROADMAP.md) and [PHONE_DEMO_OPTIONS.md](PHONE_DEMO_OPTIONS.md).
+
+## Voice and text
+
+Follow [VOICE_SETUP.md](VOICE_SETUP.md). Each weekly slot can use Email, Text or Voice. With an ElevenLabs key and stock voice, generate and edit a voice script, create its audio, play it, then approve that revision. Editing requires fresh audio. The browser audio milestone needs no Twilio account. Real calls and custom texts require phone verification, provider eligibility and public HTTPS; missing setup is shown without pretending a call was sent.

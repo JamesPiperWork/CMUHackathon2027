@@ -205,13 +205,17 @@ test("email challenge GET, HEAD and prefetch are score-neutral and require the r
   assert.deepEqual((await f.repo.read()).match.scores, { alex: 3, jordan: -1 });
 });
 
-test("a Spear that cannot be scheduled rolls back its lock and seasonal reservation together", async (t) => {
+test("a Spear that cannot fit scheduled delivery rolls back its lock and seasonal reservation together", async (t) => {
   const f = await setup(t);
   const first = await f.prepare("alex");
   await f.lock("alex", first);
   await f.post("alex", "/api/match/activate");
   const spear = await f.prepare("alex", "spear");
   await f.service.advance(10079.5);
+  // Immediate simulator sends can use the remaining seconds. The unchanged
+  // scheduled mode still requires a recipient window plus response time.
+  f.config.emailDemo = true;
+  f.config.emailDemoImmediate = false;
   await f.post("alex", `/api/drafts/${spear}/lock`, {}, 409);
   const db = await f.repo.read();
   assert.equal(db.match.state, "active");

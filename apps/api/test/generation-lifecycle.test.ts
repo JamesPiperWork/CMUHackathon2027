@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createSeed, type GenerateRequest } from "@fp/shared";
+import { createSeed, generateSchema, type GenerateRequest } from "@fp/shared";
 import { FileRepository } from "../src/repository.js";
 import { GameService } from "../src/service.js";
 import type { Config } from "../src/config.js";
@@ -58,6 +58,79 @@ function delayedGemini() {
   };
   return { started, finish, restore };
 }
+
+test("queued refinements keep the exact sender notes and edited email across later profile changes", async t => {
+  const f = await setup(t);
+  const { scenarioId } = await f.service.generate("alex", input(1), true);
+  const prepared = (await f.repo.read()).scenarios.find(s => s.id === scenarioId)!;
+  const previousDraft = { subject: "An edited Friday update", bodyText: prepared.content.bodyText };
+  await f.service.generate("alex", { ...input(1), previousDraft, refinement: "Use a more casual tone." });
+  previousDraft.subject = "A later local edit";
+  await f.service.saveScouting("alex", "jordan", { interests: ["Live music"], markdown: "A completely different note for another cast." });
+  const queued = (await f.repo.read()).jobs.find(j => j.type === "generation")!;
+  assert.equal(queued.generationInput?.scouting?.markdown, "Small acoustic shows.");
+  assert.equal(queued.generationInput?.previousDraft?.subject, "An edited Friday update");
+  const oldKey = process.env.GEMINI_API_KEY;
+  delete process.env.GEMINI_API_KEY;
+  try {
+    await f.service.tick();
+    const complete = (await f.repo.read()).scenarios.find(s => s.id === scenarioId)!;
+    assert.equal(complete.content.subject, "An edited Friday update");
+    assert.equal(complete.content.bodyText, prepared.content.bodyText);
+    assert.match(complete.generationReason!, /current email was kept/);
+  } finally {
+    if (oldKey === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = oldKey;
+  }
+});
+
+test("a free-context cast needs no hobby tag, keeps private context, accepts edits, and sends once", async t => {
+  const f = await setup(t);
+  const authorPrompt = "They love chess. Invite them to a fictional puzzle afternoon.";
+  const request = generateSchema.parse({ recipientMemberId: "jordan", channel: "email", kind: "regular", slot: 1, authorPrompt });
+  await f.service.saveScouting("alex", "jordan", { interests: [], markdown: authorPrompt });
+  // Excluded hiking must not classify every unknown/new template as a hiking story.
+  await f.repo.transact(db => { db.members.find(member => member.userId === "jordan")!.consent.excludedThemes = ["hiking", "board game"]; });
+  const { scenarioId } = await f.service.generate("alex", request);
+  let db = await f.repo.read();
+  const snapshot = db.jobs.find(job => job.type === "generation")!.generationInput!;
+  assert.equal(snapshot.authorPrompt, authorPrompt);
+  assert.equal(snapshot.scouting, undefined);
+  assert.equal(snapshot.templateId, "sender-prompt");
+  assert.equal(snapshot.policy, "email-prompt-v3");
+  await f.service.saveScouting("alex", "jordan", { interests: [], markdown: "They now enjoy gardening." });
+  const key = process.env.GEMINI_API_KEY;
+  delete process.env.GEMINI_API_KEY;
+  try { await f.service.tick(); }
+  finally { if (key === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = key; }
+  db = await f.repo.read();
+  const draft = db.scenarios.find(s => s.id === scenarioId)!;
+  assert.equal(draft.contentPolicy, "email-prompt-v3");
+  assert.match(draft.content.bodyText, /chess/);
+  assert.doesNotMatch(draft.content.bodyText, /gardening|Mooncrate|Trail Club|JS-118/);
+  assert.equal(draft.authorPrompt, authorPrompt);
+  const alex = await f.service.createSession("alex"), jordan = await f.service.createSession("jordan");
+  const authorState = await f.service.state((await f.service.sessionForToken(alex.token))!), recipientState = await f.service.state((await f.service.sessionForToken(jordan.token))!);
+  assert.equal(authorState.drafts.find(item => item.id === scenarioId)?.authorPrompt, authorPrompt);
+  assert.ok(!JSON.stringify(recipientState).includes(authorPrompt), "Private brief is never sent to the recipient");
+  const bodyText = "Hi there,\n\nOur fictional chess circle is meeting for a puzzle afternoon. There will be beginner and advanced boards. Reserve a place using the response below.\n\nThe organizers";
+  await f.service.editDraft("alex", scenarioId, { subject: "A chess puzzle afternoon", bodyText });
+  await assert.rejects(() => f.service.editDraft("alex", scenarioId, { bodyText: `${bodyText} Visit bad.invalid.` }));
+  const result = await f.service.sendCast("alex", scenarioId);
+  assert.equal(result.status, "simulated");
+  assert.equal((await f.service.sendCast("alex", scenarioId)).status, "simulated");
+  db = await f.repo.read();
+  assert.equal(db.attempts.filter(attempt => attempt.scenarioId === scenarioId).length, 1);
+  assert.equal(db.scenarios.find(s => s.id === scenarioId)!.content.bodyText, bodyText);
+});
+
+test("free-context casts still respect recipient topics and family-friendly settings", async t => {
+  const f = await setup(t);
+  await f.repo.transact(db => { db.members.find(member => member.userId === "jordan")!.consent.excludedThemes = ["gardening"]; });
+  await assert.rejects(() => f.service.generate("alex", { recipientMemberId: "jordan", channel: "email", authorPrompt: "They enjoy gardening." }), /excluded theme/);
+  await assert.rejects(() => f.service.generate("alex", { recipientMemberId: "jordan", channel: "email", authorPrompt: "They love fucking chess." }), /family-friendly/);
+  assert.equal((await f.repo.read()).scenarios.length, 0);
+});
 
 test("a generation crossing the deadline cannot release a later queued cast", { timeout: 5000 }, async t => {
   const f = await setup(t);

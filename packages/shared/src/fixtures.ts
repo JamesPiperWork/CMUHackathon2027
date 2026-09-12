@@ -2,6 +2,7 @@ import {
   interests,
   type ApprovedContent,
   type Channel,
+  type Consent,
   type Database,
   type Profile,
   type GamePool,
@@ -327,6 +328,32 @@ export function initializeLeagues(db: Database, now = Date.now()) {
   }
   for (const pair of [["sam", "riley"], ["casey", "morgan"], ["jamie", "taylor"]])
     db.matchPools.push(blankGame(`week-04-${pair.join("-")}`, "usual-suspects", pair, 4, now, true));
+}
+
+export function blankConsent(): Consent {
+  return { version: "2026-09-email-v2", acceptedAt: null, adult: false,
+    channels: { email: false, sms: false, voice: false }, paused: false,
+    timezone: "UTC", startHour: 10, endHour: 20, familyFriendly: true,
+    excludedThemes: [], contacts: {} };
+}
+/** Empty accounts and leagues by default; sample identities are explicit test fixtures. */
+export function createFreshSeed(now = Date.now(), sampleAccounts = false): Database {
+  const db = createSeed(now);
+  db.accounts = sampleAccounts ? db.members.map(member => ({
+    userId: member.userId,
+    consent: { ...member.consent, acceptedAt: null, adult: false, channels: { email: false, sms: false, voice: false }, contacts: {}, excludedThemes: [] },
+  })) : [];
+  db.profiles = sampleAccounts ? db.profiles.map(profile => ({ ...profile, historical: false, leaguePoints: 0, wins: 0, losses: 0, draws: 0 })) : [];
+  Object.assign(db, blankGame("setup", "", [], 1, now));
+  db.match.state = "cancelled";
+  db.match.ruleSet = "email-casts-v2";
+  db.members = [];
+  db.leagues = [];
+  db.matchPools = [];
+  db.chat = [];
+  db.scouting = [];
+  db.userSelections = {};
+  return db;
 }
 
 export function blankGame(id: string, leagueId: string, players: string[], week: number, now: number, synthetic = false): GamePool {

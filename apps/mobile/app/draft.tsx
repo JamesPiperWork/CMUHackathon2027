@@ -1,106 +1,53 @@
-import React, { useEffect, useState } from "react";
-import { Pressable, View } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { Linking, Platform, Pressable, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
-import {
-  interests,
-  type ApprovedContent,
-  type Channel,
-  type DraftPublic,
-  type DeliveryStatus,
-  type Interest,
-  type ScoutingProfile,
-} from "@fp/shared";
-import { useSession } from "../src/session";
+import { type ApprovedContent, type Channel, type DeliveryStatus, type DraftPublic, type ScoutingProfile } from "@fp/shared";
+import { API, useSession } from "../src/session";
 import { useScreenScroll } from "../src/screen-scroll";
-import {
-  Badge,
-  Button,
-  C,
-  Card,
-  Divider,
-  Empty,
-  Field,
-  Hook,
-  Icon,
-  Label,
-  Row,
-  Title,
-  Txt,
-} from "../src/ui";
+import { Badge, Button, C, Card, Divider, Empty, Field, Hook, Icon, Label, Row, Title, Txt } from "../src/ui";
 import { Welcome } from "./index";
 
 type Step = "choose" | "review" | "ready";
-type BaitChoice = {
-  id: string;
-  label: string;
-  channel: Channel;
-  kind?: "regular" | "spear";
-  slot?: 1 | 2;
-};
-const channelNames: Record<Channel, string> = {
-  email: "Email",
-  sms: "Text",
-  voice: "Call",
-};
+type BaitChoice = { id: string; label: string; channel: Channel; kind?: "regular" | "spear"; slot?: 1 | 2 };
+const channelNames: Record<Channel, string> = { email: "Email", sms: "Text", voice: "Voice" };
+const mediumNames: Record<Channel, string> = { email: "email", sms: "text message", voice: "call script" };
+const channelIcons = { email: "mail", sms: "sms", voice: "voice" } as const;
 const deliveryLabels: Record<DeliveryStatus, string> = {
-  queued: "Queued for delivery",
-  simulated: "Delivered in app",
-  accepted: "Accepted by mail provider",
-  delivered: "Delivered",
-  failed: "Delivery failed",
-  unknown: "Delivery unconfirmed",
-  cancelled: "Delivery cancelled",
-  unanswered: "No answer",
+  queued: "Queued for delivery", simulated: "Simulated delivery", accepted: "Accepted by provider",
+  delivered: "Delivered", failed: "Delivery failed", unknown: "Delivery unconfirmed",
+  cancelled: "Delivery cancelled", unanswered: "No answer",
 };
-const baitIdeas: Record<Interest, { template: string }> = {
-  "Board games": { template: "parcel-update" },
-  "Live music": { template: "ticket-drop" },
-  "Outdoor adventures": { template: "game-night" },
-};
-const templates = [
-  { id: "parcel-update", title: "A delivery update" },
-  { id: "ticket-drop", title: "A ticket invitation" },
-  { id: "game-night", title: "A change of plans" },
-];
-// Keep previously saved text unchanged unless the sender edits it.
-const plainNotes = (value: string) =>
-  value
-    .split(/\r?\n/)
-    .filter((line) => !/^\s*#{1,6}\s/.test(line))
-    .map((line) => line.replace(/^\s*[-*+]\s+/, "").replace(/[*_`~]/g, ""))
-    .join("\n")
-    .trim();
+const plainNotes = (value: string) => value.split(/\r?\n/)
+  .filter(line => !/^\s*#{1,6}\s/.test(line))
+  .map(line => line.replace(/^\s*[-*+]\s+/, "").replace(/[*_`~]/g, ""))
+  .join("\n").trim();
 
-function Disclosure({
-  label,
-  open,
-  onPress,
-}: {
-  label: string;
-  open: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      aria-expanded={open}
-      accessibilityState={{ expanded: open }}
-      onPress={onPress}
-      style={{
-        minHeight: 44,
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-      }}
-    >
-      <Txt muted style={{ fontSize: 13 }}>
-        {label}
-      </Txt>
-      <Txt muted>{open ? "−" : "+"}</Txt>
-    </Pressable>
-  );
+function VoiceRecording({ path, onHeard, onUnavailable }: { path: string; onHeard: () => void; onUnavailable: () => void }) {
+  const { token } = useSession();
+  const [source, setSource] = useState<{ path: string; token: string; url: string } | null>(null);
+  const [error, setError] = useState(false);
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    const abort = new AbortController();
+    let objectUrl: string | undefined;
+    let active = true;
+    const timer = setTimeout(() => abort.abort(), 15000);
+    setSource(null); setError(false);
+    if (!token || Platform.OS !== "web") { clearTimeout(timer); return; }
+    // The account cookie is shared across tabs; use this tab's account token.
+    void (async () => {
+      const response = await fetch(`${API}${path}`, { credentials: "include", headers: { Authorization: `Bearer ${token}` }, signal: abort.signal });
+      if (!response.ok) throw new Error("Audio preview unavailable");
+      const bytes = await response.blob();
+      if (!active || abort.signal.aborted) return;
+      objectUrl = URL.createObjectURL(bytes);
+      setSource({ path, token, url: objectUrl });
+    })().catch(() => { if (active) setError(true); }).finally(() => clearTimeout(timer));
+    return () => { active = false; abort.abort(); clearTimeout(timer); if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [path, token, retry]);
+  if (error) return <View style={{ gap: 10 }}><Txt style={{ color: C.coral, fontSize: 13 }}>Could not load this recording. Your script is safe.</Txt><Button small variant="secondary" onPress={() => { onUnavailable(); setRetry(value => value + 1); }}>Reload audio</Button></View>;
+  if (!source || source.path !== path || source.token !== token) return <Txt muted style={{ fontSize: 13 }}>Loading your recording…</Txt>;
+  return React.createElement("audio", { key: source.url, controls: true, preload: "metadata", src: source.url, style: { width: "100%" }, "aria-label": "Play your generated voice message", onEnded: onHeard, onError: () => { onUnavailable(); setError(true); } });
 }
 
 export default function Draft() {
@@ -108,770 +55,302 @@ export default function Draft() {
   const { state, busy, request } = useSession();
   const scrollToTop = useScreenScroll();
   const [channel, setChannel] = useState<Channel>("email");
+  const [mediumChosen, setMediumChosen] = useState(false);
   const [cast, setCast] = useState("cast-1");
-  const [handwritingId, setHandwritingId] = useState<string | null>(null);
   const [step, setStep] = useState<Step>("choose");
-  const [interest, setInterest] = useState<Interest>("Board games");
-  const [template, setTemplate] = useState("parcel-update");
   const [content, setContent] = useState<ApprovedContent | null>(null);
   const [dirty, setDirty] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [personalOpen, setPersonalOpen] = useState(false);
-  const [optionsOpen, setOptionsOpen] = useState(false);
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  const [savedNotes, setSavedNotes] = useState("");
   const [notes, setNotes] = useState("");
+  const [savedNotes, setSavedNotes] = useState("");
   const [notesEdited, setNotesEdited] = useState(false);
+  const [refinement, setRefinement] = useState("");
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [loadingNotes, setLoadingNotes] = useState(false);
   const [notesError, setNotesError] = useState(false);
   const [retry, setRetry] = useState(0);
   const [working, setWorking] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const waiting =
-    !!state?.selectedLeagueId &&
-    state.selectedLeagueId !== state.match.leagueId;
+  const [sendResult, setSendResult] = useState<{ status: DeliveryStatus; reason?: string } | null>(null);
+  const [voiceConfig, setVoiceConfig] = useState<{ ready: boolean; voiceLabel: string; checks: { code: string; ok: boolean; detail: string }[] } | null>(null);
+  const [voiceConfigError, setVoiceConfigError] = useState(false);
+  const [heardRevision, setHeardRevision] = useState<string | null>(null);
+  const noteCache = useRef<Record<string, string>>({});
+  const waiting = !!state?.selectedLeagueId && state.selectedLeagueId !== state.match.leagueId;
   const targetId = state?.opponent.id;
   const leagueId = state?.match.leagueId;
   const emailCasts = state?.castRules.version === "email-casts-v2";
-  const league = state?.leagues?.find((item) => item.id === leagueId);
-  const enabledKey = (Object.keys(channelNames) as Channel[])
-    .filter((item) => !league || league.settings.channels[item])
-    .join(",");
-  const choices: BaitChoice[] = emailCasts
-    ? [
-        { id: "cast-1", label: "Cast 1", channel: "email", kind: "regular", slot: 1 },
-        { id: "cast-2", label: "Cast 2", channel: "email", kind: "regular", slot: 2 },
-        { id: "spear", label: "Spear", channel: "email", kind: "spear" },
-      ]
-    : (enabledKey.split(",").filter(Boolean) as Channel[]).map((item) => ({ id: item, label: channelNames[item], channel: item }));
-  const selectedChoice = choices.find((choice) => choice.id === (emailCasts ? cast : channel)) || choices[0];
+  const immediate = emailCasts && state?.deliveryTiming === "immediate";
+  const league = state?.leagues.find(item => item.id === leagueId);
+  const enabledKey = (Object.keys(channelNames) as Channel[]).filter(item => !league || league.settings.channels[item]).join(",");
+  const choices: BaitChoice[] = emailCasts ? [
+    { id: "cast-1", label: "Cast 1", channel: "email", kind: "regular", slot: 1 },
+    { id: "cast-2", label: "Cast 2", channel: "email", kind: "regular", slot: 2 },
+    { id: "spear", label: "Spear", channel: "email", kind: "spear" },
+  ] : (enabledKey.split(",").filter(Boolean) as Channel[]).map(item => ({ id: item, label: channelNames[item], channel: item }));
+  const selected = choices.find(choice => choice.id === (emailCasts ? cast : channel)) || choices[0];
   const matchesChoice = (item: DraftPublic, choice: BaitChoice) => emailCasts
-    ? item.channel === "email" && (item.kind || "regular") === choice.kind && (choice.kind === "spear" || (item.slot || 1) === choice.slot)
+    ? (item.kind || "regular") === choice.kind && (choice.kind === "spear" || (item.slot || 1) === choice.slot)
     : item.channel === choice.channel;
-  const draft = selectedChoice && state?.drafts.find((item) => matchesChoice(item, selectedChoice));
+  const draft = selected && state?.drafts.find(item => matchesChoice(item, selected));
 
+  useEffect(() => { scrollToTop(); }, [step, channel, cast, scrollToTop]);
   useEffect(() => {
-    scrollToTop();
-  }, [step, channel, cast, scrollToTop]);
-
-  useEffect(() => {
-    if (emailCasts) setChannel("email");
-    else if (params.channel && ["email", "sms", "voice"].includes(params.channel))
-      setChannel(params.channel as Channel);
+    if (!emailCasts && params.channel && ["email", "sms", "voice"].includes(params.channel)) setChannel(params.channel as Channel);
   }, [params.channel, emailCasts]);
   useEffect(() => {
-    const enabled: Channel[] = emailCasts ? ["email"] : enabledKey.split(",") as Channel[];
-    if (enabled[0] && !enabled.includes(channel)) setChannel(enabled[0]);
+    const enabled = enabledKey.split(",");
+    if (enabled[0] && !enabled.includes(channel)) setChannel(enabled[0] as Channel);
   }, [enabledKey, channel, emailCasts]);
   useEffect(() => {
-    setContent(draft?.content ?? null);
+    setContent(draft?.channel === channel ? draft.content : null);
     setDirty(false);
-    setEditing(false);
-  }, [
-    draft?.id,
-    draft?.content.subject,
-    draft?.content.bodyText,
-    draft?.content.smsText,
-    draft?.content.voiceScript,
-  ]);
+    setHeardRevision(null);
+  }, [draft?.id, draft?.channel, channel, draft?.content.subject, draft?.content.bodyText, draft?.content.smsText, draft?.content.voiceScript]);
   useEffect(() => {
-    setStep((current) =>
-      draft?.generationStatus === "pending"
-        ? "choose"
-        : draft && current === "review"
-          ? "review"
-          : draft?.locked || (state && state.match.state !== "drafting" && !(emailCasts && state.match.state === "active"))
-            ? "ready"
-            : draft
-              ? "review"
-              : "choose",
-    );
-    setError(null);
+    setStep(current => draft?.generationStatus === "pending" ? current : draft?.channel === channel ? "review" : "choose");
+    setRefinement("");
     setDetailsOpen(false);
-  }, [
-    draft?.id,
-    draft?.locked,
-    draft?.generationStatus,
-    state?.match.id,
-    state?.match.state,
-    emailCasts,
-  ]);
+    setSendResult(null);
+    setError(null);
+  }, [draft?.id, draft?.generationStatus, state?.match.id]);
   useEffect(() => {
     let active = true;
-    setSavedNotes("");
-    setNotes("");
-    setNotesEdited(false);
-    setNotesError(false);
-    setPersonalOpen(false);
+    setNotes(""); setSavedNotes(""); setNotesEdited(false); setNotesError(false);
     if (!targetId || waiting) return;
-    setLoadingNotes(true);
-    void request<ScoutingProfile>(
-      `/api/scouting/${encodeURIComponent(targetId)}`,
-    )
-      .then((profile) => {
-        if (!active) return;
-        const chosen = profile.interests[0] || "Board games";
-        setInterest(chosen);
-        setTemplate(baitIdeas[chosen].template);
-        setSavedNotes(profile.markdown);
-        setNotes(plainNotes(profile.markdown));
-      })
-      .catch(() => {
-        if (active) setNotesError(true);
-      })
-      .finally(() => {
-        if (active) setLoadingNotes(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [targetId, leagueId, waiting, retry, request]);
-  useEffect(() => {
-    if (handwritingId && draft?.id === handwritingId) {
-      setStep("review");
-      setEditing(true);
-      setHandwritingId(null);
+    if (emailCasts) {
+      setNotes(noteCache.current[`${state?.match.id}:${cast}`] ?? draft?.authorPrompt ?? "");
+      setLoadingNotes(false);
+      return;
     }
-  }, [handwritingId, draft?.id]);
-  // Pick an entry point once per match, without moving an in-progress editor
-  // whenever the session refreshes in the background.
+    setLoadingNotes(true);
+    void request<ScoutingProfile>(`/api/scouting/${encodeURIComponent(targetId)}`)
+      .then(profile => {
+        if (!active) return;
+        setSavedNotes(profile.markdown);
+        setNotes(draft?.authorPrompt ?? plainNotes(profile.markdown));
+      })
+      .catch(() => { if (active) setNotesError(true); })
+      .finally(() => { if (active) setLoadingNotes(false); });
+    return () => { active = false; };
+  }, [targetId, leagueId, state?.match.id, cast, draft?.id, draft?.authorPrompt, waiting, retry, request, emailCasts]);
   useEffect(() => {
     if (!emailCasts || !state) return;
-    const existing = state.drafts.find((item) => item.channel === "email");
-    if (state.drafts.some((item) => item.channel === "email" && item.locked)) {
-      setStep("ready");
-    } else if (existing) {
-      setCast(existing.kind === "spear" ? "spear" : `cast-${existing.slot || 1}`);
-    }
+    const existing = state.drafts.find(item => !item.locked) ?? state.drafts[0];
+    setCast(existing ? existing.kind === "spear" ? "spear" : `cast-${existing.slot || 1}` : "cast-1");
+    setChannel(existing?.channel ?? "email");
+    setMediumChosen(!!existing);
+    if (state.drafts.some(item => item.locked)) setStep("ready");
   }, [state?.me.id, state?.match.id, emailCasts]);
+  useEffect(() => {
+    let active = true;
+    if (channel !== "voice" || !state) return;
+    setVoiceConfigError(false);
+    void request<typeof voiceConfig>("/api/voice/config")
+      .then(value => { if (active) setVoiceConfig(value); })
+      .catch(() => { if (active) setVoiceConfigError(true); });
+    return () => { active = false; };
+  }, [channel, state?.me.id, request]);
 
   const run = async (name: string, action: () => Promise<void>) => {
-    setWorking(name);
-    setError(null);
-    try {
-      await action();
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "That didn't work. Please try again.",
-      );
-    } finally {
-      setWorking(null);
-    }
+    setWorking(name); setError(null);
+    try { await action(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "That didn't work. Please try again."); }
+    finally { setWorking(null); }
   };
   if (!state) return <Welcome />;
-  if (waiting)
-    return (
-      <View style={{ gap: 16 }}>
-        <Empty icon="clock" title="Waiting for a fishing buddy">
-          Invite someone to this league. You can choose bait once you're paired.
-        </Empty>
-        <Button onPress={() => router.push("/league")}>Open League</Button>
-      </View>
-    );
-  if (!state.consent.acceptedAt && state.role !== "operator")
-    return (
-      <View style={{ gap: 16 }}>
-        <Empty title="Join in first">
-          Head Home to accept your invitation and choose how you'd like to play.
-        </Empty>
-        <Button onPress={() => router.push("/")}>Go Home</Button>
-      </View>
-    );
+  if (waiting) return <View style={{ gap: 16 }}><Empty icon="clock" title="Waiting for a fishing buddy">Invite someone to this league. You can write bait once you're paired.</Empty><Button onPress={() => router.push("/league")}>Open League</Button></View>;
+  if (!state.consent.acceptedAt && state.role !== "operator") return <View style={{ gap: 16 }}><Empty title="Join in first">Head Home to accept your invitation and choose how you'd like to play.</Empty><Button onPress={() => router.push("/")}>Go Home</Button></View>;
 
-  const difficulty = league?.settings.difficulty ?? "standard";
-  const budget = difficulty === "rookie" ? 5 : difficulty === "expert" ? 1 : 3;
+  const budget = league?.settings.difficulty === "rookie" ? 5 : league?.settings.difficulty === "expert" ? 1 : 3;
   const attemptsLeft = Math.max(0, budget - (draft?.generationAttempts ?? 0));
   const generating = draft?.generationStatus === "pending";
   const canCast = state.match.state === "drafting" || (emailCasts && state.match.state === "active");
   const locked = !!draft?.locked || !canCast;
   const disabled = !!working || busy || generating;
-  const key =
-    channel === "email"
-      ? "bodyText"
-      : channel === "sms"
-        ? "smsText"
-        : "voiceScript";
+  const key = channel === "email" ? "bodyText" : channel === "sms" ? "smsText" : "voiceScript";
   const max = channel === "email" ? 700 : channel === "sms" ? 300 : 440;
   const min = channel === "email" ? 20 : channel === "sms" ? 15 : 40;
-  const valid =
-    !!content &&
-    content[key].length >= min &&
-    content[key].length <= max &&
-    content.subject.length >= 3;
-  const activeDrafts = state.drafts.filter((item) => !emailCasts || item.channel === "email");
-  const unfinished = activeDrafts.some((item) => !item.locked);
-  const readyCount = activeDrafts.filter((item) => item.locked && (!emailCasts || item.kind !== "spear")).length;
-  const spearUnavailable = emailCasts && selectedChoice?.kind === "spear" && !draft?.locked && state.castRules.spearRemaining === 0;
-  const chooseBait = (next: BaitChoice) => {
-    setChannel(next.channel);
-    if (emailCasts) setCast(next.id);
-    setEditing(false);
-    setError(null);
-    const existing = state.drafts.find((item) => matchesChoice(item, next));
-    setStep(existing ? "review" : "choose");
+  const valid = !!content && content[key].length >= min && content[key].length <= max && (channel !== "email" || content.subject.length >= 3);
+  const activeDrafts = state.drafts;
+  const readyCount = activeDrafts.filter(item => item.locked && (!emailCasts || item.kind !== "spear")).length;
+  const unfinished = activeDrafts.some(item => !item.locked);
+  const spearUnavailable = emailCasts && selected.kind === "spear" && !draft?.locked && state.castRules.spearRemaining === 0;
+  const canReview = !!content && !!draft && draft.channel === channel && !generating;
+  const readiness = state.readiness.find(item => item.channel === channel);
+  const deliveryReady = readiness?.status === "ready" || readiness?.status === "simulated";
+  const voiceAudio = draft?.channel === "voice" ? draft.voiceAudio : undefined;
+  const voiceApproved = channel !== "voice" || (!!voiceAudio?.approvedAt && voiceAudio.status === "ready" && !dirty);
+  const medium = mediumNames[channel];
+  const setContext = (value: string) => { setNotes(value); setNotesEdited(true); noteCache.current[`${state.match.id}:${cast}`] = value; };
+  const navigate = (next: Step) => {
+    if (disabled || (next === "ready" && dirty) || (next === "review" && !canReview)) return;
+    setError(null); setStep(next);
   };
-  const createMessage = (handwritten = false) =>
-    void run(handwritten ? "write" : "create", async () => {
-      const profile = await request<ScoutingProfile>(
-        `/api/scouting/${encodeURIComponent(state.opponent.id)}`,
-        { interests: [interest], markdown: notesEdited ? notes : savedNotes },
-        "PUT",
-      );
+  const chooseCast = (next: BaitChoice) => {
+    if (dirty || disabled) return;
+    const existing = state.drafts.find(item => matchesChoice(item, next));
+    setChannel(existing?.channel ?? (enabledKey.split(",")[0] as Channel || "email"));
+    setMediumChosen(!!existing);
+    if (emailCasts) setCast(next.id);
+    setStep(existing ? "review" : "choose"); setError(null);
+  };
+  const createMessage = (handwritten = false, refine = false) => void run(handwritten ? "write" : refine ? "refine" : "create", async () => {
+    if (!emailCasts) {
+      const profile = await request<ScoutingProfile>(`/api/scouting/${encodeURIComponent(state.opponent.id)}`, {
+        interests: [draft?.interest ?? "Board games"], markdown: notesEdited ? notes : savedNotes,
+      }, "PUT");
       setSavedNotes(profile.markdown);
-      setNotesEdited(false);
-      const result = await request<{ scenarioId: string }>(handwritten ? "/api/drafts/prepare" : "/api/drafts/generate", {
-        recipientMemberId: state.opponent.id,
-        channel,
-        interest,
-        templateId: template,
-        ...(emailCasts ? { kind: selectedChoice.kind, slot: selectedChoice.slot } : {}),
-      });
-      if (handwritten) setHandwritingId(result.scenarioId);
+    }
+    setNotesEdited(false);
+    await request<{ scenarioId: string }>(handwritten ? "/api/drafts/prepare" : "/api/drafts/generate", {
+      recipientMemberId: state.opponent.id, channel,
+      ...(emailCasts ? { authorPrompt: notes.trim() } : { interest: draft?.interest ?? "Board games", templateId: draft?.templateId ?? "parcel-update" }),
+      ...(emailCasts ? { kind: selected.kind, slot: selected.slot } : {}),
+      ...(refine && content ? { refinement: refinement.trim(), previousDraft: channel === "email" ? { subject: content.subject, bodyText: content.bodyText } : { [key]: content[key] } } : {}),
     });
-  const useBait = () =>
-    void run("save", async () => {
-      if (!draft || !content || !valid) return;
-      if (dirty) {
-        await request(
-          `/api/drafts/${draft.id}`,
-          {
-            subject: content.subject,
-            bodyText: content.bodyText,
-            smsText: content.smsText,
-            voiceScript: content.voiceScript,
-          },
-          "PATCH",
-        );
-        setDirty(false);
-      }
+    if (handwritten) setStep("review");
+  });
+  const saveEdits = async () => {
+    if (!draft || !content || !dirty) return;
+    await request(`/api/drafts/${draft.id}`, channel === "email" ? { subject: content.subject, bodyText: content.bodyText } : { [key]: content[key] }, "PATCH");
+    setDirty(false);
+  };
+  const createAudio = () => void run("audio", async () => {
+    if (!draft || !valid) return;
+    await saveEdits();
+    setHeardRevision(null);
+    await request(`/api/drafts/${draft.id}/audio`, {});
+  });
+  const useBait = () => void run(immediate ? "send" : "save", async () => {
+    if (!draft || !content || !valid) return;
+    await saveEdits();
+    if (immediate) {
+      const result = await request<{ scenarioId: string; status: DeliveryStatus; reason?: string }>(`/api/drafts/${draft.id}/send`, {});
+      setSendResult(result);
+    } else {
       await request(`/api/drafts/${draft.id}/lock`, {});
-      setEditing(false);
-      setStep("ready");
-    });
+    }
+    setStep("ready");
+  });
 
-  return (
-    <View
-      style={{ width: "100%", maxWidth: 760, alignSelf: "center", gap: 18 }}
-    >
-      <Title>Bait for {state.opponent.name}</Title>
-      <Row style={{ gap: 8, marginBottom: 4 }}>
-        {(["choose", "review", "ready"] as Step[]).map((item, index) => (
-          <View key={item} style={{ flex: 1, gap: 9 }}>
-            <View
-              style={{
-                height: 3,
-                borderRadius: 3,
-                backgroundColor:
-                  index <= ["choose", "review", "ready"].indexOf(step)
-                    ? C.teal
-                    : C.border,
-              }}
-            />
-            <Txt
-              style={{
-                fontSize: 12,
-                fontWeight: step === item ? "700" : "400",
-                color: step === item ? C.text : C.muted,
-              }}
-            >
-              {index + 1}.{" "}
-              {item === "choose"
-                ? "Choose bait"
-                : item === "review"
-                  ? "Review message"
-                  : "Ready"}
-            </Txt>
-          </View>
-        ))}
+  // Each weekly slot has one medium and one editable package.
+  return <View style={{ width: "100%", maxWidth: 760, alignSelf: "center", gap: 18 }}>
+    <Row style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+      <View style={{ flex: 1, gap: 6 }}>
+        <Title>{step === "ready" ? "Your bait this week" : `Bait for ${state.opponent.name}`}</Title>
+        <Txt muted style={{ fontSize: 13 }}>{step === "ready" ? emailCasts ? `${readyCount} of ${state.castRules.regularLimit} casts ${immediate ? "used" : "ready"}` : `${readyCount} messages ready` : selected.kind === "spear" ? "Spear · one extra cast this season" : emailCasts ? `Cast ${selected.slot} of ${state.castRules.regularLimit}${mediumChosen ? ` · ${channelNames[channel]}` : ""}` : channelNames[channel]}</Txt>
+      </View>
+      {step !== "ready" && <Button small variant="ghost" disabled={disabled || dirty} onPress={() => navigate("ready")}>Your casts</Button>}
+    </Row>
+    {step === "review" && <Button small variant="ghost" style={{ alignSelf: "flex-start" }} disabled={disabled} onPress={() => navigate("choose")}>← Back to your idea</Button>}
+    {!!sendResult && <Card style={{ gap: 8, borderColor: ["failed", "unknown", "cancelled"].includes(sendResult.status) ? C.coral : C.teal }}>
+      <Txt style={{ fontWeight: "700" }}>{deliveryLabels[sendResult.status]}</Txt>
+      <Txt muted style={{ lineHeight: 21 }}>{sendResult.reason || (sendResult.status === "accepted" ? "The provider accepted this cast. This does not yet confirm a delivery or a game response." : sendResult.status === "simulated" ? "This cast stayed in the local simulation. No email, text or call was sent." : sendResult.status === "queued" ? "This cast is being processed. Its status will update here." : "Check the cast’s status before taking another action.")}</Txt>
+    </Card>}
+    {!!error && <Card style={{ borderColor: C.coral }}><Txt style={{ color: C.coral, lineHeight: 21 }}>{error}</Txt><Txt muted style={{ fontSize: 12, marginTop: 8 }}>Your current message is still here. Adjust it or try again.</Txt></Card>}
+
+    {step === "choose" && !mediumChosen && <Card style={{ gap: 18 }}>
+      <Txt style={{ fontSize: 22, fontWeight: "800" }}>How will you cast?</Txt>
+      <Txt muted style={{ lineHeight: 22 }}>Choose a medium for this cast. You have two casts total this week, in any combination.</Txt>
+      {(Object.keys(channelNames) as Channel[]).map(item => {
+        const allowed = enabledKey.split(",").includes(item);
+        return <Pressable key={item} accessibilityRole="button" accessibilityLabel={`Choose ${channelNames[item]}`} accessibilityState={{ disabled: !allowed || disabled }} disabled={!allowed || disabled}
+          onPress={() => { setChannel(item); setMediumChosen(true); setHeardRevision(null); }}
+          style={({ pressed }) => ({ padding: 18, borderRadius: 12, borderWidth: 1, borderColor: C.border, opacity: allowed ? 1 : 0.5, backgroundColor: pressed ? C.tealDark : C.panelDeep })}>
+          <Row style={{ gap: 14 }}><Icon name={channelIcons[item]} color={C.teal} size={24} /><View style={{ flex: 1, gap: 5 }}><Txt style={{ fontSize: 17, fontWeight: "700" }}>{channelNames[item]}</Txt><Txt muted style={{ fontSize: 13, lineHeight: 20 }}>{!allowed ? "Turned off in league settings" : item === "email" ? "A subject and message for their inbox" : item === "sms" ? "A short message for their phone" : "A script, generated voice and phone call"}</Txt></View><Txt muted>→</Txt></Row>
+        </Pressable>;
+      })}
+      <Txt muted style={{ fontSize: 12, lineHeight: 20 }}>Texts and calls require your opponent’s opt-in and a connected phone service. You can check delivery readiness before sending.</Txt>
+    </Card>}
+
+    {step === "choose" && mediumChosen && <Card style={{ gap: 18 }}>
+      {!locked && <Button small variant="ghost" disabled={disabled || dirty} style={{ alignSelf: "flex-start" }} onPress={() => setMediumChosen(false)}>← Change medium</Button>}
+      <Row style={{ justifyContent: "space-between" }}><Txt style={{ fontSize: 22, fontWeight: "800", flex: 1 }}>What's your idea?</Txt><Hook size={42} /></Row>
+      <Txt muted style={{ lineHeight: 22 }}>Tell us a little about {state.opponent.name} and what they'd notice. We'll turn your idea into one {medium} you can edit.</Txt>
+      {loadingNotes ? <Txt muted>Loading your saved context…</Txt> : notesError ? <View style={{ gap: 12 }}><Txt muted>We couldn't load your saved context.</Txt><Button variant="secondary" onPress={() => setRetry(value => value + 1)}>Try again</Button></View> : <>
+        <Field label={`Your context for ${state.opponent.name}`} value={notes} multiline maxLength={1800} editable={!disabled && !locked}
+          onChangeText={setContext}
+          placeholder="They love small acoustic shows. A casual update about a Friday booking would catch their eye."
+          help="Your private notes. Hobbies and fictional plans are enough; leave out private contact details." />
+        {locked ? <Button disabled={!canReview || disabled} onPress={() => navigate("review")}>View your {medium}</Button> : <>
+          <Button icon="sparkle" loading={working === "create" || generating} disabled={disabled || dirty || spearUnavailable || attemptsLeft === 0 || notes.trim().length < 3} onPress={() => createMessage()}>{generating ? `Writing your ${medium}…` : `Generate ${medium}`}</Button>
+          {emailCasts && (selected.kind === "spear" || (attemptsLeft === 0 && !canReview)) && <Button variant="secondary" loading={working === "write"} disabled={disabled || dirty || spearUnavailable || notes.trim().length < 3} onPress={() => createMessage(true)}>{selected.kind === "spear" ? "Write my own Spear" : "Create an editable draft"}</Button>}
+          {dirty && <Txt muted style={{ fontSize: 12, lineHeight: 20 }}>Your edits are kept. Return to your {medium} to save or refine them.</Txt>}
+          {attemptsLeft === 0 && <Txt muted style={{ fontSize: 12, lineHeight: 20 }}>No generations left for this cast. You can still edit your message directly.</Txt>}
+          {canReview && <Button variant="secondary" icon="arrow" disabled={disabled} onPress={() => navigate("review")}>Return to your {medium}</Button>}
+        </>}
+      </>}
+    </Card>}
+
+    {step === "review" && content && <Card style={{ gap: 18 }}>
+      <Row style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
+        <Txt style={{ fontSize: 22, fontWeight: "800" }}>Your {medium}</Txt>
+        <Badge>{locked ? draft ? deliveryLabels[draft.deliveryStatus] : "Saved" : generating ? "Generating…" : draft?.source === "gemini" ? "Gemini draft" : "Prepared draft"}</Badge>
       </Row>
-      {!!error && (
-        <Card style={{ borderColor: C.coral }}>
-          <Txt style={{ color: C.coral, lineHeight: 21 }}>{error}</Txt>
-          <Txt muted style={{ fontSize: 12, marginTop: 8 }}>
-            Your saved bait is safe. Adjust the message or try the action again.
-          </Txt>
-        </Card>
-      )}
+      {!locked && draft?.source !== "gemini" && !!draft?.generationReason && <Txt muted style={{ fontSize: 13, lineHeight: 21 }}>{draft.generationReason}</Txt>}
+      {!locked ? <View style={{ gap: 14 }}>
+        {channel === "email" && <Field label="Subject" value={content.subject} maxLength={100} editable={!disabled} onChangeText={value => { setContent({ ...content, subject: value }); setDirty(true); }} />}
+        <Field label={channel === "voice" ? "What the call says" : "Message"} value={content[key]} multiline maxLength={max} editable={!disabled}
+          onChangeText={value => { setContent({ ...content, [key]: value }); setDirty(true); }}
+          help={channel === "voice" ? "Your call includes a game disclosure and keypad response instructions." : "Your game response link is added automatically."} />
+        {dirty && <Row style={{ flexWrap: "wrap" }}><Button small variant="secondary" disabled={disabled || !valid} loading={working === "edits"} onPress={() => void run("edits", saveEdits)}>Save edits</Button><Button small variant="ghost" disabled={disabled} onPress={() => { setContent(draft?.content ?? null); setDirty(false); }}>Undo my edits</Button></Row>}
+      </View> : <View style={{ gap: 14, padding: 18, backgroundColor: C.panelDeep, borderRadius: 12 }}>
+        <Txt muted style={{ fontSize: 12 }}>{content.senderDisplayName} · for {state.opponent.name}</Txt>
+        {channel === "email" && <Txt style={{ fontSize: 19, fontWeight: "700", lineHeight: 26 }}>{content.subject}</Txt>}
+        <Txt style={{ fontSize: 15, lineHeight: 25 }}>{content[key]}</Txt>
+      </View>}
+      {channel === "voice" && <View style={{ gap: 13, paddingTop: 4 }}>
+        <Divider />
+        <Txt style={{ fontSize: 17, fontWeight: "700" }}>{voiceConfig?.voiceLabel || "Stock voice"}</Txt>
+        {!locked && <Button variant="secondary" icon="voice" loading={working === "audio" || voiceAudio?.status === "generating"} disabled={disabled || !valid || !voiceConfig?.ready || voiceAudio?.status === "generating"} onPress={createAudio}>{voiceAudio?.status === "generating" ? "Creating audio…" : "Generate audio"}</Button>}
+        {voiceConfigError ? <Txt muted style={{ fontSize: 13, lineHeight: 21 }}>Could not check voice setup. Open delivery details in Settings, then try again.</Txt> : voiceConfig && !voiceConfig.ready && <Txt muted style={{ fontSize: 13, lineHeight: 21 }}>{voiceConfig.checks.find(check => !check.ok)?.code === "api_key" ? "Audio isn’t connected yet. Ask the organizer to add the ElevenLabs API key." : "The organizer needs to select and confirm an ElevenLabs stock voice before audio can be generated."}</Txt>}
+        {voiceAudio?.status === "failed" && <Txt style={{ color: C.coral, fontSize: 13, lineHeight: 21 }}>{voiceAudio.error || "Audio could not be created. Your script is saved; try generating audio again."}</Txt>}
+        {dirty && voiceAudio && <Txt muted style={{ fontSize: 13, lineHeight: 21 }}>Your script has changed. Generate new audio to hear and approve this version.</Txt>}
+        {!dirty && voiceAudio?.status === "ready" && voiceAudio.previewUrl && <>
+          <Txt muted style={{ fontSize: 13 }}>Listen to this recording before sending{voiceAudio.durationSeconds ? ` · ${Math.round(voiceAudio.durationSeconds)} seconds` : ""}.</Txt>
+          {Platform.OS === "web" ? <VoiceRecording key={voiceAudio.revision} path={voiceAudio.previewUrl} onHeard={() => setHeardRevision(voiceAudio.revision)} onUnavailable={() => setHeardRevision(null)} /> : <><Txt muted style={{ fontSize: 13, lineHeight: 21 }}>Listen and approve this recording in the web app using the same account.</Txt><Button variant="secondary" onPress={() => void Linking.openURL(`${API}/draft`)}>Open web audio preview</Button></>}
+          {!locked && !voiceAudio.approvedAt && <Button variant="secondary" disabled={disabled || heardRevision !== voiceAudio.revision} loading={working === "approve"} onPress={() => void run("approve", async () => { await request(`/api/drafts/${draft!.id}/audio/approve`, { revision: voiceAudio.revision }); })}>Use this audio</Button>}
+          {!!voiceAudio.approvedAt && <Txt style={{ color: C.teal, fontSize: 13 }}>This recording is approved.</Txt>}
+        </>}
+      </View>}
+      {!locked && <>
+        <Button icon="check" loading={working === "save" || working === "send"} disabled={disabled || !valid || spearUnavailable || !voiceApproved || (immediate && !deliveryReady)} onPress={useBait}>{working === "send" ? "Sending…" : immediate ? channel === "email" ? "Send email now" : channel === "sms" ? "Send text now" : "Send call" : emailCasts && state.match.state === "active" ? "Send cast" : "Make this bait ready"}</Button>
+        <Txt muted style={{ fontSize: 12, textAlign: "center", lineHeight: 19 }}>{readiness?.status === "simulated" ? "Local simulation: sending this cast will not contact a real inbox or phone." : immediate ? "Sends this cast now and starts the week if needed. Sending uses this slot." : state.match.state === "active" ? "Queues this cast for delivery in their chosen hours." : "Saves this cast. You can start the match next."}</Txt>
+        {!deliveryReady && <View style={{ gap: 8 }}><Txt muted style={{ fontSize: 13, lineHeight: 21 }}>{readiness?.reason || "Delivery is not connected for this medium."}</Txt><Button small variant="ghost" onPress={() => router.push("/settings")}>View delivery setup</Button></View>}
+        {emailCasts && <>
+          <Divider />
+          <Field label="Want Gemini to change something?" value={refinement} maxLength={500} editable={!disabled && attemptsLeft > 0}
+            onChangeText={setRefinement} placeholder="Make it shorter and a little more casual."
+            help={attemptsLeft ? `${attemptsLeft} ${attemptsLeft === 1 ? "generation" : "generations"} left for this cast. Your current edits are included.` : "No generations left. You can still edit the message above."} />
+          <Button variant="secondary" icon="sparkle" loading={working === "refine" || generating} disabled={disabled || !valid || spearUnavailable || attemptsLeft === 0 || !refinement.trim()} onPress={() => createMessage(false, true)}>Regenerate with changes</Button>
+        </>}
+      </>}
+      {locked && <>{immediate && canCast && draft?.deliveryStatus === "queued" && <Button loading={working === "send"} disabled={disabled || !deliveryReady || !voiceApproved} onPress={useBait}>{working === "send" ? "Sending…" : channel === "email" ? "Send email now" : channel === "sms" ? "Send text now" : "Send call"}</Button>}<Txt muted style={{ lineHeight: 21 }}>{state.match.state === "active" && draft ? `${deliveryLabels[draft.deliveryStatus]}. This cast can't be changed now.` : "This bait is saved and can't be changed now."}</Txt><Button onPress={() => navigate("ready")}>Back to your casts</Button></>}
+      <View>
+        <Pressable accessibilityRole="button" accessibilityState={{ expanded: detailsOpen }} onPress={() => setDetailsOpen(!detailsOpen)} style={{ minHeight: 44, justifyContent: "center" }}><Txt muted style={{ fontSize: 13 }}>{detailsOpen ? "Hide learning notes −" : "Why it's bait +"}</Txt></Pressable>
+        {detailsOpen && <View style={{ gap: 8 }}><Label>Learning notes</Label>{content.cueAnnotations.map((cue, index) => <Txt key={index} muted style={{ fontSize: 12, lineHeight: 20 }}>{cue}</Txt>)}<Txt muted style={{ fontSize: 12, lineHeight: 20 }}>{content.explanation}</Txt></View>}
+      </View>
+    </Card>}
 
-      {step !== "ready" && (
-        <Row style={{ flexWrap: "wrap", gap: 8 }}>
-          {choices.map((item) => {
-            const chosen = item.id === selectedChoice.id;
-            const existing = state.drafts.find((candidate) => matchesChoice(candidate, item));
-            const unavailable = emailCasts && item.kind === "spear" && !existing && state.castRules.spearRemaining === 0;
-            return (
-            <Pressable
-              key={item.id}
-              accessibilityRole="radio"
-              accessibilityLabel={`${item.label} bait`}
-              aria-checked={chosen}
-              accessibilityState={{
-                checked: chosen,
-                disabled: disabled || dirty || unavailable,
-              }}
-              disabled={disabled || dirty || unavailable}
-              onPress={() => chooseBait(item)}
-              style={{
-                minHeight: 44,
-                paddingHorizontal: emailCasts ? 14 : 17,
-                borderRadius: 24,
-                borderWidth: 1,
-                borderColor: chosen ? C.teal : C.border,
-                backgroundColor: chosen ? C.tealDark : C.panel,
-                opacity: unavailable ? 0.45 : 1,
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 8,
-              }}
-            >
-              <Icon
-                name={item.kind === "spear" ? "hook" : item.channel === "email" ? "mail" : item.channel}
-                size={16}
-                color={chosen ? C.teal : C.muted}
-              />
-              <Txt
-                style={{
-                  fontSize: 13,
-                  color: chosen ? C.teal : C.muted,
-                }}
-              >
-                {item.label}
-              </Txt>
-              {existing?.locked && <Icon name="check" size={13} color={C.teal} />}
-            </Pressable>
-          );})}
-        </Row>
-      )}
-      {step !== "ready" && emailCasts && selectedChoice.kind === "spear" && <Txt muted style={{ fontSize: 13, lineHeight: 21 }}>An optional extra email, once per league season. Your Spear is used when you make this bait ready.</Txt>}
-
-      {step === "choose" && (
-        <Card style={{ gap: 16 }}>
+    {step === "ready" && <Card style={{ gap: 20 }}>
+      <Txt muted style={{ lineHeight: 22 }}>{state.match.state === "completed" ? "This round is finished. See the scores in your match results." : emailCasts ? "Two casts, in any mix of email, text or voice. The Spear adds one optional cast this season." : "Review your messages before starting this round."}</Txt>
+      <View>{choices.map(item => {
+        const candidate = state.drafts.find(value => matchesChoice(value, item));
+        const unavailable = emailCasts && item.kind === "spear" && !candidate && state.castRules.spearRemaining === 0;
+        return <View key={item.id} style={{ borderTopWidth: 1, borderColor: C.border, paddingVertical: 14 }}>
           <Row style={{ justifyContent: "space-between" }}>
-            <View style={{ flex: 1, gap: 6 }}>
-              <Txt style={{ fontSize: 22, fontWeight: "800" }}>
-                What would they bite on?
-              </Txt>
-            </View>
-            <Hook size={47} />
+            <Row style={{ flex: 1 }}><Icon name={candidate ? channelIcons[candidate.channel] : "hook"} color={candidate?.locked ? C.teal : C.muted} /><View style={{ flex: 1, gap: 4 }}>
+              <Txt style={{ fontWeight: "700" }}>{item.label}{candidate ? ` · ${channelNames[candidate.channel]}` : item.kind === "spear" ? " · optional" : ""}</Txt>
+              <Txt muted style={{ fontSize: 12 }}>{candidate?.locked ? state.match.state !== "drafting" ? deliveryLabels[candidate.deliveryStatus] : "Ready to send" : candidate ? "Draft saved" : unavailable ? "Used this season" : "Not started"}</Txt>
+            </View></Row>
+            {(candidate || canCast) && <Button small variant="ghost" disabled={disabled || unavailable} onPress={() => chooseCast(item)}>{candidate?.locked ? "View" : candidate ? "Continue" : unavailable ? "Used" : "Create"}</Button>}
           </Row>
-          {loadingNotes ? (
-            <Txt muted>Loading your saved ideas…</Txt>
-          ) : notesError ? (
-            <View style={{ gap: 12 }}>
-              <Txt muted>We couldn't load your saved ideas.</Txt>
-              <Button
-                variant="secondary"
-                onPress={() => setRetry((value) => value + 1)}
-              >
-                Try again
-              </Button>
-            </View>
-          ) : (
-            <>
-              <View style={{ gap: 10 }}>
-                {interests.map((item) => (
-                  <Pressable
-                    key={item}
-                    accessibilityRole="radio"
-                    aria-checked={interest === item}
-                    accessibilityState={{
-                      checked: interest === item,
-                      disabled: disabled || locked,
-                    }}
-                    accessibilityLabel={item}
-                    disabled={disabled || locked}
-                    onPress={() => {
-                      setInterest(item);
-                      setTemplate(baitIdeas[item].template);
-                    }}
-                    style={{
-                      padding: 16,
-                      minHeight: 56,
-                      borderRadius: 10,
-                      borderWidth: 1,
-                      borderColor: interest === item ? C.teal : C.border,
-                      backgroundColor:
-                        interest === item ? C.tealDark : C.panelDeep,
-                    }}
-                  >
-                    <Row style={{ justifyContent: "space-between" }}>
-                      <Txt style={{ fontWeight: "700", fontSize: 14 }}>
-                        {item}
-                      </Txt>
-                      <Icon
-                        name={interest === item ? "check" : "arrow"}
-                        color={interest === item ? C.teal : C.muted}
-                        size={18}
-                      />
-                    </Row>
-                  </Pressable>
-                ))}
-              </View>
-              <View>
-                <Disclosure
-                  label="Add a personal touch (optional)"
-                  open={personalOpen}
-                  onPress={() => setPersonalOpen(!personalOpen)}
-                />
-                {personalOpen && (
-                  <Field
-                    label={`A little about ${state.opponent.name}`}
-                    value={notes}
-                    onChangeText={(value) => {
-                      if (disabled) return;
-                      setNotes(value);
-                      setNotesEdited(true);
-                    }}
-                    multiline
-                    maxLength={1800}
-                    placeholder="They love a relaxed game night with friends."
-                    help="A hobby or friendly detail is plenty. Saved when you create the message."
-                  />
-                )}
-              </View>
-              <Button
-                icon="sparkle"
-                loading={working === "create" || generating}
-                disabled={disabled || locked || spearUnavailable || attemptsLeft === 0}
-                onPress={() => createMessage()}
-              >
-                {generating ? "Creating your message…" : "Create message"}
-              </Button>
-              {emailCasts && selectedChoice.kind === "spear" && <Button variant="secondary" loading={working === "write"} disabled={disabled || locked || spearUnavailable} onPress={() => createMessage(true)}>Write my own Spear</Button>}
-              {attemptsLeft === 0 && (
-                <Txt muted style={{ fontSize: 12, lineHeight: 20 }}>
-                  You've used all your new versions. You can still edit the
-                  message you have.
-                </Txt>
-              )}
-              {!!draft && !generating && (
-                <Button variant="ghost" onPress={() => setStep("review")}>
-                  Back to your message
-                </Button>
-              )}
-              <View>
-                <Disclosure
-                  label="More options"
-                  open={optionsOpen}
-                  onPress={() => setOptionsOpen(!optionsOpen)}
-                />
-                {optionsOpen && (
-                  <View style={{ gap: 12, paddingTop: 6 }}>
-                    <Label>Message idea</Label>
-                    <Row style={{ flexWrap: "wrap", gap: 8 }}>
-                      {templates.map((item) => (
-                        <Button
-                          small
-                          key={item.id}
-                          variant={
-                            template === item.id ? "primary" : "secondary"
-                          }
-                          disabled={disabled || locked}
-                          onPress={() => setTemplate(item.id)}
-                        >
-                          {item.title}
-                        </Button>
-                      ))}
-                    </Row>
-                    <Txt muted style={{ fontSize: 12 }}>
-                      {attemptsLeft} new{" "}
-                      {attemptsLeft === 1 ? "version" : "versions"} remaining
-                      for this {emailCasts ? "cast" : channelNames[channel].toLowerCase()}.
-                    </Txt>
-                  </View>
-                )}
-              </View>
-            </>
-          )}
-          {!emailCasts && !unfinished && (
-            <Button
-              variant="ghost"
-              disabled={disabled}
-              onPress={() => setStep("ready")}
-            >
-              Use prepared messages instead
-            </Button>
-          )}
-          {emailCasts && activeDrafts.some((item) => item.locked) && <Button variant="ghost" disabled={disabled || dirty} onPress={() => setStep("ready")}>Review your casts</Button>}
-        </Card>
-      )}
-
-      {step === "review" && content && (
-        <Card style={{ gap: 18 }}>
-          <Row style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
-            <Txt style={{ fontSize: 22, fontWeight: "800" }}>
-              How does this look?
-            </Txt>
-            {locked ? (
-              <Badge>Ready</Badge>
-            ) : (
-              <Button
-                small
-                variant="ghost"
-                disabled={disabled}
-                onPress={() => setEditing(!editing)}
-              >
-                {editing ? "Done editing" : "Edit"}
-              </Button>
-            )}
-          </Row>
-          {editing && !locked ? (
-            <View style={{ gap: 14 }}>
-              {channel === "email" && (
-                <Field
-                  label="Subject"
-                  value={content.subject}
-                  maxLength={100}
-                  onChangeText={(value) => {
-                    if (disabled) return;
-                    setContent({ ...content, subject: value });
-                    setDirty(true);
-                  }}
-                />
-              )}
-              <Field
-                label={channel === "voice" ? "What the call says" : "Message"}
-                value={content[key]}
-                multiline
-                maxLength={max}
-                onChangeText={(value) => {
-                  if (disabled) return;
-                  setContent({ ...content, [key]: value });
-                  setDirty(true);
-                }}
-                help={`Keep the fictional sender and suspicious detail intact. At least ${min} characters.`}
-              />
-              {dirty && (
-                <Button
-                  small
-                  variant="ghost"
-                  disabled={disabled}
-                  onPress={() => {
-                    setContent(draft?.content ?? null);
-                    setDirty(false);
-                    setEditing(false);
-                  }}
-                >
-                  Undo edits
-                </Button>
-              )}
-            </View>
-          ) : (
-            <View
-              style={{
-                padding: 20,
-                gap: 18,
-                borderRadius: 12,
-                backgroundColor: C.panelDeep,
-                borderWidth: 1,
-                borderColor: C.border,
-              }}
-            >
-              <Row>
-                <Icon
-                  name={channel === "email" ? "mail" : channel}
-                  color={C.teal}
-                />
-                <View style={{ flex: 1, gap: 4 }}>
-                  <Txt style={{ fontWeight: "700", fontSize: 13 }}>
-                    {content.senderDisplayName}
-                  </Txt>
-                  <Txt muted style={{ fontSize: 11 }}>
-                    {channelNames[channel]} for {state.opponent.name}
-                  </Txt>
-                </View>
-              </Row>
-              {channel === "email" && (
-                <Txt
-                  style={{ fontSize: 19, fontWeight: "700", lineHeight: 26 }}
-                >
-                  {content.subject}
-                </Txt>
-              )}
-              <Txt style={{ fontSize: 15, lineHeight: 26 }}>{content[key]}</Txt>
-            </View>
-          )}
-          {!locked ? (
-            <>
-              <Button
-                icon="check"
-                loading={working === "save"}
-                disabled={disabled || !valid || spearUnavailable}
-                onPress={useBait}
-              >
-                {emailCasts && state.match.state === "active" ? "Send cast" : "Use this bait"}
-              </Button>
-              <Txt muted style={{ fontSize: 12, textAlign: "center" }}>
-                {emailCasts && state.match.state === "active" ? "Saves your changes and queues this email for delivery." : emailCasts && selectedChoice.kind === "spear" ? "Saves your message and uses your seasonal Spear." : "Saves your changes and makes this message ready."}
-              </Txt>
-              <Button
-                variant="ghost"
-                disabled={disabled || dirty}
-                onPress={() => setStep("choose")}
-              >
-                Try another idea
-              </Button>
-            </>
-          ) : (
-            <>
-              <Txt muted style={{ lineHeight: 21 }}>
-                {emailCasts && state.match.state === "active" && draft ? `${deliveryLabels[draft.deliveryStatus]}. This cast can't be changed now.` : "This bait is saved and ready. It can't be changed now."}
-              </Txt>
-              <Button onPress={() => setStep("ready")}>Continue</Button>
-            </>
-          )}
-          <View>
-            <Disclosure
-              label="Message details"
-              open={detailsOpen}
-              onPress={() => setDetailsOpen(!detailsOpen)}
-            />
-            {detailsOpen && (
-              <View style={{ gap: 10, paddingTop: 8 }}>
-                <Label>
-                  {draft?.source === "gemini"
-                    ? "Created for you"
-                    : "Prepared message"}
-                </Label>
-                {!!draft?.generationReason && (
-                  <Txt muted style={{ fontSize: 12, lineHeight: 19 }}>
-                    {draft.generationReason
-                      .replace(/playbook/gi, "message")
-                      .replace(/scouting/gi, "personal")}
-                  </Txt>
-                )}
-                <Divider />
-                <Label>Why it's bait</Label>
-                {content.cueAnnotations.map((cue, index) => (
-                  <Txt
-                    key={index}
-                    muted
-                    style={{ fontSize: 12, lineHeight: 20 }}
-                  >
-                    {cue}
-                  </Txt>
-                ))}
-                <Txt muted style={{ fontSize: 12, lineHeight: 20 }}>
-                  {content.explanation}
-                </Txt>
-              </View>
-            )}
-          </View>
-        </Card>
-      )}
-
-      {step === "ready" && (
-        <Card style={{ gap: 20 }}>
-          <View style={{ alignItems: "center", gap: 12, paddingVertical: 9 }}>
-            <Hook size={62} />
-            <Txt
-              style={{ fontSize: 25, fontWeight: "800", textAlign: "center" }}
-            >
-              {state.match.state === "drafting"
-                ? "Ready to cast?"
-                : state.match.state === "active"
-                  ? emailCasts ? "Your casts this week." : "Your bait is in the water."
-                  : "This round is finished."}
-            </Txt>
-            <Txt muted style={{ textAlign: "center", lineHeight: 21 }}>
-              {emailCasts && canCast
-                ? `${readyCount} of ${state.castRules.regularLimit} regular casts ${state.match.state === "active" ? "ready or sent" : "ready"}. ${state.match.state === "active" ? "You can add your remaining bait during the week." : "Start with one, or prepare both before you begin."}`
-                : state.match.state === "drafting"
-                ? `${readyCount} ${readyCount === 1 ? "message" : "messages"} ready. We'll fill any empty spots with prepared messages.`
-                : "Open your inbox to see what came your way."}
-            </Txt>
-          </View>
-          <View>
-            {choices.map((item) => {
-              const candidate = state.drafts.find(
-                (value) => matchesChoice(value, item),
-              );
-              const unavailable = emailCasts && item.kind === "spear" && !candidate && state.castRules.spearRemaining === 0;
-              return (
-                <View
-                  key={item.id}
-                  style={{
-                    borderTopWidth: 1,
-                    borderColor: C.border,
-                    paddingVertical: 14,
-                  }}
-                >
-                  <Row style={{ justifyContent: "space-between" }}>
-                    <Row>
-                      <Icon
-                        name={item.kind === "spear" ? "hook" : item.channel === "email" ? "mail" : item.channel}
-                        color={candidate?.locked ? C.teal : C.muted}
-                      />
-                      <View style={{ gap: 4 }}>
-                        <Txt style={{ fontWeight: "700" }}>
-                          {item.label}{item.kind === "spear" ? " · optional" : ""}
-                        </Txt>
-                        <Txt muted style={{ fontSize: 12 }}>
-                          {candidate?.locked
-                            ? emailCasts && state.match.state !== "drafting" ? deliveryLabels[candidate.deliveryStatus] : "Your bait is ready"
-                            : candidate
-                              ? "Needs your review"
-                              : unavailable ? "Used this season" : item.kind === "spear" ? "One extra cast this season" : emailCasts ? "Choose your bait" : "Prepared message"}
-                        </Txt>
-                      </View>
-                    </Row>
-                    {candidate || canCast ? (
-                      <Button
-                        small
-                        variant="ghost"
-                        disabled={disabled || unavailable}
-                        onPress={() => chooseBait(item)}
-                      >
-                        {candidate?.locked
-                          ? "View"
-                          : candidate
-                            ? "Finish"
-                            : unavailable ? "Used" : emailCasts ? "Create" : "Add your own"}
-                      </Button>
-                    ) : (
-                      <Icon name="check" color={C.teal} size={17} />
-                    )}
-                  </Row>
-                </View>
-              );
-            })}
-          </View>
-          {state.match.state === "drafting" ? (
-            <>
-              <Button
-                icon="arrow"
-                disabled={disabled || (emailCasts ? !activeDrafts.some((item) => item.locked) : unfinished)}
-                loading={working === "start"}
-                onPress={() =>
-                  void run("start", async () => {
-                    await request("/api/match/activate", {});
-                    router.push("/activity");
-                  })
-                }
-              >
-                Start fishing
-              </Button>
-              {!emailCasts && unfinished && (
-                <Txt muted style={{ fontSize: 12, lineHeight: 20 }}>
-                  Finish reviewing your messages before you start.
-                </Txt>
-              )}
-              <Txt
-                muted
-                style={{ fontSize: 11, textAlign: "center", lineHeight: 18 }}
-              >
-                {emailCasts ? "Only your saved casts are sent. Empty spots stay open for later in the week." : "Prepared messages keep the round moving. Only bait you create can earn you a catch."}
-              </Txt>
-            </>
-          ) : (
-            <Button icon="arrow" onPress={() => router.push("/activity")}>
-              Open Inbox
-            </Button>
-          )}
-        </Card>
-      )}
-    </View>
-  );
+        </View>;
+      })}</View>
+      {state.match.state === "drafting" && !immediate ? <>
+        <Button icon="arrow" disabled={disabled || (emailCasts ? !activeDrafts.some(item => item.locked) : unfinished)} loading={working === "start"} onPress={() => void run("start", async () => { await request("/api/match/activate", {}); router.push("/"); })}>Start fishing</Button>
+        <Txt muted style={{ fontSize: 12, textAlign: "center", lineHeight: 19 }}>{emailCasts ? "Only your ready casts are sent. Empty slots stay open during the week." : "Finish reviewing your messages before you start."}</Txt>
+      </> : <Button icon="arrow" onPress={() => router.push(state.match.state === "completed" ? "/matchups" : "/")}>{state.match.state === "completed" ? "View match results" : "Back to Home"}</Button>}
+    </Card>}
+  </View>;
 }

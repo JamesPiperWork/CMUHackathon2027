@@ -91,8 +91,7 @@ test('selected league match plays all channels under rules without changing anot
   const privateTarget = await app.inject({ url: '/api/scouting/jordan', headers: headers('jordan') }); assert.equal(privateTarget.statusCode, 403);
   for (const scenario of game.scenarios) await scoped.decisionFor(scenario.recipientId, scenario.id, scenario.isPhishing ? 'flag' : 'trust');
   const recap = await app.inject({ url: `/api/leagues/${league.id}/matchups/${matchId}/recap`, headers: headers('jordan') });
-  assert.equal(recap.statusCode, 200); assert.equal(recap.json().synthetic, false);
-  assert.ok(recap.json().highlights.some((h: { kind: string }) => h.kind === 'defense'));
+  assert.equal(recap.statusCode, 410);
   const primaryAfter = await repo.read(); assert.equal(primaryAfter.match.state, 'drafting'); assert.equal(primaryAfter.profiles.find((p) => p.id === 'alex')!.leaguePoints, 12);
   const standings = (await app.inject({ url: `/api/leagues/${league.id}/standings`, headers: headers('alex') })).json(); assert.equal(standings.members[0].leaguePoints, 1);
   const finishedState = (await app.inject({ url: '/api/state', headers: headers('alex') })).json();
@@ -104,11 +103,16 @@ test('selected league match plays all channels under rules without changing anot
   for (const matchup of slate) assert.ok(matchup.players.every((p: { leaguePoints: number; draws: number; wins: number; losses: number }) => p.leaguePoints === 1 && p.draws === 1 && p.wins === 0 && p.losses === 0));
 });
 
-test('season Wrapped includes only completed saved decisions and relevant player chat', async (t) => {
-  const { app, headers } = await setup(t);
-  const unfinished = await app.inject({ url: '/api/leagues/usual-suspects/matchups/match-week-04/recap', headers: headers('alex') }); assert.equal(unfinished.statusCode, 404);
-  const recap = await app.inject({ url: '/api/leagues/usual-suspects/matchups/week-03-alex-riley/recap', headers: headers('alex') });
-  assert.equal(recap.statusCode, 200); assert.equal(recap.json().synthetic, true);
-  assert.ok(recap.json().highlights.some((h: { kind: string; text: string }) => h.kind === 'attack' && h.text.includes('MC-204')));
-  assert.ok(recap.json().highlights.some((h: { kind: string; text: string }) => h.kind === 'chat' && h.text.includes('Mooncrate')));
+test('retired video recap exposes no highlights and preserves historical match results', async (t) => {
+  const { app, headers, repo } = await setup(t);
+  const before = await repo.read();
+  const retired = await app.inject({ url: '/api/leagues/usual-suspects/matchups/week-03-alex-riley/recap', headers: headers('alex') });
+  assert.equal(retired.statusCode, 410);
+  assert.equal(retired.json().highlights, undefined);
+  const matches = await app.inject({ url: '/api/leagues/usual-suspects/matchups', headers: headers('alex') });
+  assert.equal(matches.statusCode, 200);
+  const historical = matches.json().matchups.find((match: { id: string }) => match.id === 'week-03-alex-riley');
+  assert.equal(historical.state, 'completed');
+  assert.ok(Object.keys(historical.scores).length > 0);
+  assert.deepEqual(await repo.read(), before);
 });

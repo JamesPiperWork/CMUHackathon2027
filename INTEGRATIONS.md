@@ -1,28 +1,37 @@
 # Integration status and operator setup
 
-The working default is **simulated delivery** with fictional players. No real recipient, account, sender, deployment, registration, approval, or provider secret was supplied. Nothing in this repository has contacted a real recipient. A channel marked **ready** means the configured prerequisites passed; it is neither independent confirmation of permission nor proof of delivery.
+The default app uses **simulated delivery** and starts with zero accounts. Players register with name, email and password; passwords are salted and hashed. This local identity does not verify ownership for real email. [EMAIL_DEMO_SETUP.md](EMAIL_DEMO_SETUP.md) covers the separate, clearly labeled Gmail demo with email-code signup and separate storage.
 
-## Implemented / configured / verified matrix
+`npm run email:demo` loads the private root `.env`, checks SMTP without sending, builds the web app, then serves it and the API on `http://127.0.0.1:3001`. The launcher enables `smtp-demo` with `EMAIL_DEMO_LOCAL_ONLY=true` and `data/email-demo.json`. Response links work only on this computer. Public HTTPS is an optional next step for other devices; full live mode below still requires it.
 
-| Integration | Implemented | Configured in this handoff | Verification performed |
-|---|---|---|---|
-| File repository + simulator | Durable events, approved payloads, common decisions/scoring | Yes, default local setup | Local application/domain and provider tests |
-| Gemini | Structured REST generation, 8-second timeout, bounded output, validated fixture fallback | No key supplied; fixture mode is configured | Mock valid, malformed, refused, unavailable, unsafe, and fallback cases; no real model request |
-| SMTP gameplay email | Generic authenticated SMTP, controlled text template, submission outcome handling | Disabled; no permitted provider/sender supplied | Mock acceptance, rejection, and ambiguous failure; no real email |
-| Twilio SMS | Owned sender, status callback, signature validation, STOP handling | Disabled; no account/sender/registration/permission | Local signed webhook and mocked submission tests; no real SMS |
-| ElevenLabs | Approved script to cached WAV; measured 15–25-second duration; licensed stock voice gate | Disabled; no key/voice/permission | Mock PCM conversion and cache tests; no real ElevenLabs recording |
-| Twilio voice | Play approved audio, DTMF 1/2/9, scoped media, status callbacks | Disabled; no configured account/number/public callbacks | Mock call request, no-recording, signature, recipient, empty-input, pause and media-token tests; no real call |
-| Auth0 API | RS256 JWT issuer/audience/expiry verification; membership binding by Auth0 subject | No tenant or application supplied | Typechecked; negative state/PKCE cookie tests; real login/JWKS untested |
-| Auth0 Expo native | Platform SDK with secure credential manager, shared login/logout interface | No tenant/native app/development build supplied | Typechecked when project checks run; native compilation and login unrun |
-| Auth0 Expo web | Auth0 SPA SDK popup + API audience, memory token cache | No SPA client supplied | Web compilation when project checks run; real login unrun |
-| External-browser response login | Authorization code + PKCE, state, nonce, encrypted HttpOnly transaction cookie, secure session, preserved challenge | No regular web Auth0 application supplied | Transaction tamper/expiry tests; real code exchange unrun |
-| MongoDB | Backend repository with transaction requirements | No MongoDB URI supplied | File-path behavior tested; real replica-set transactions unrun |
+The private email demo uses a truthful Fantasy Phishing sender and game labeling. `EMAIL_DEMO_RECIPIENTS` is optional: blank permits participant signup, while a populated list restricts signup and delivery. Email ownership, player consent, league membership, contact windows and quotas remain required. Sign-in codes expire, are stored only as keyed hashes, are browser-bound and single-use, and have attempt/send limits.
 
-## Before enabling any real channel
+Credentials stay in uncommitted local configuration. Verification uses provider mocks with real keys unset; keep those keys unset when running the automated suite. A **ready** status means configured prerequisites passed; SMTP acceptance or a no-send connection check does not establish inbox delivery. The [signed email receipt relay](docs/EMAIL_RECEIPTS.md) needs a genuine upstream evidence source for automatic untouched-email settlement.
 
-Keep `APP_MODE=demo`, `LIVE_SEND_AUTHORIZED=false`, and all `ENABLE_LIVE_*` flags false for presentation. Operator time controls only affect this simulated mode. Never turn them on merely to see a green readiness row.
+## Implementation and verification
 
-To stage live operation, configure a public HTTPS `API_ORIGIN` (Fastify response pages and callbacks) and `APP_ORIGIN` (Expo web), a transactional MongoDB replica set, Auth0, and independent random `SESSION_SECRET` / `TOKEN_SECRET` values of at least 32 characters. The live server does not create a replica set, tenant, sender, or hosting service. The readiness table checks supplied configuration; successful startup and provider-specific checks are still needed.
+| Integration | Current implementation | Verification boundary |
+|---|---|---|
+| Local accounts + file repository | Name/email/password signup, hashed passwords, persistent state, no sample accounts by default | Local auth, setup, privacy and persistence tests |
+| Private email-code accounts | Verified signup, expiring codes, rate limits, authenticated response sessions | Mock code submission and replay/concurrency tests |
+| Gemini email drafting | One context → one editable email; revision includes the current draft; bounded structured output and fallback | Mock contracts/refusals/errors; real model output requires rehearsal |
+| SMTP gameplay email | Authenticated TLS submission, clearly labeled private-demo format, accepted/failed/unknown outcomes | Mock submission and receipt tests; connection check sends nothing |
+| Twilio SMS | Sender integration, signed status callbacks and STOP handling | Mock submission/webhook tests; real sender setup remains separate |
+| ElevenLabs + Twilio voice | Cached approved audio, scoped media, DTMF and signed callbacks | Mock audio/carrier tests; no native or real-call guarantee |
+| Auth0 web/native/external response | JWT validation, account binding, SDK login, external code+PKCE flow | Type/build and negative transaction tests; actual tenant login separate |
+| MongoDB | Transactional repository requiring a replica set | Real replica-set behavior needs its own environment |
+
+## Reset behavior
+
+**Settings → Reset demo** in simulated mode clears all accounts, leagues, sessions and progress after confirmation. It returns to account creation. The CLI equivalent requires the JSON-backed server to be stopped.
+
+**Settings → Reset active leagues** is available in `smtp-demo` only to the account whose verified email matches `SMTP_USER`. It archives leagues, cancels unfinished work and preserves accounts, authentication, transport history and consumed quotas. Submitted mail cannot be recalled; ambiguous in-flight sends remain recorded for reconciliation. Reset does not grant extra daily sends or erase delivery evidence.
+
+## Full live-mode adapters
+
+The configuration below is for `APP_MODE=live` and the original surprise-format adapters. The labeled private email demo has its own `EMAIL_DEMO_SEND_ENABLED` switch and keeps `LIVE_SEND_AUTHORIZED` and `ENABLE_LIVE_*` false. Operator clock controls are limited to simulated delivery.
+
+To stage live operation, configure a public HTTPS `API_ORIGIN` (Fastify response pages and callbacks) and `APP_ORIGIN` (Expo web), a transactional MongoDB replica set, Auth0, and independent random `SESSION_SECRET` / `TOKEN_SECRET` values of at least 32 characters. The live server does not create a replica set, tenant, sender, or hosting service. A verified Auth0 identity can now create its player account and then create or join a private league; arbitrary user-ID binding is still rejected. The readiness table checks supplied configuration; successful startup and provider-specific checks are still needed.
 
 Each channel requires all of the following recorded conditions:
 
@@ -34,13 +43,13 @@ Each channel requires all of the following recorded conditions:
 
 Default live quota is one challenge per recipient/channel/local day. Accepted, delivered, unknown, and unanswered attempts consume it. The live scheduler places regular casts and the optional Spear on separate eligible recipient-local contact days. Activation rejects a deadline that would expire before the scheduled opportunities plus a one-hour response margin; use `MATCH_DURATION_MINUTES=4320` for a three-day live trial, subject to the selected windows. The short presentation uses explicit simulated timing. Windows default to 10:00–20:00. Generation of audio can take time, so live voice rechecks current eligibility after preparing audio and immediately before submitting the call.
 
-The server resolves contacts from membership records, never a destination in a challenge-creation request. Live records need operator provisioning: there is intentionally no endpoint to bind an arbitrary requested user ID to Auth0. Provision the private league/profile/match records and each intended member's `auth0Sub` through a trusted administrative process before enrollment; this handoff includes no live invitation/provisioning console. A phone contact must use `method: "operator"` with independent ownership-verification evidence and `verifiedAt`, or an implemented supported verification process with `method: "verify"`. **There is no Twilio Verify onboarding flow in this demo.** Demo UI selections cannot establish live ownership. A matching Auth0 verified email establishes email ownership on sign-in; unmatched addresses remain unverified.
+The server resolves contacts from membership records, never a destination in a challenge-creation request. Verified Auth0 signup creates a new account without any league access. The player personally completes setup before creating or joining by private invite code. A phone contact must use `method: "operator"` with independent ownership-verification evidence and `verifiedAt`, or an implemented supported verification process with `method: "verify"`. **There is no Twilio Verify onboarding flow in this demo.** Demo UI selections cannot establish live ownership. A matching Auth0 verified email establishes email ownership on sign-in; unmatched addresses remain unverified.
 
 ## Auth0: three clients, one API identity
 
 Follow the official [Expo setup](https://auth0.com/docs/quickstart/native/react-native-expo), [SPA SDK documentation](https://auth0.com/docs/libraries/auth0-single-page-app-sdk), and [authorization code with PKCE](https://auth0.com/docs/get-started/authentication-and-authorization-flow/authorization-code-flow-with-pkce). The native SDK needs an Expo development build; Expo Go cannot run the native Auth0 module.
 
-Configure an Auth0 API with RS256 and set `AUTH0_DOMAIN` to the bare tenant hostname and `AUTH0_AUDIENCE` to its identifier. The backend validates these claims with the tenant JWKS, then matches `sub` to an existing private membership. Email ownership requires a matching verified email from Auth0 userinfo.
+Configure an Auth0 API with RS256 and set `AUTH0_DOMAIN` to the bare tenant hostname and `AUTH0_AUDIENCE` to its identifier. The backend validates these claims with the tenant JWKS, then binds `sub` to the account and verifies its email before new-account enrollment. Email ownership requires a matching verified email from Auth0 userinfo.
 
 For the native application, set `EXPO_PUBLIC_AUTH0_DOMAIN`, `EXPO_PUBLIC_AUTH0_CLIENT_ID`, and `EXPO_PUBLIC_AUTH0_AUDIENCE`. The Expo plugin uses `fantasyphishing` and `com.fantasyphishing.demo`. Add these exact allowed callback and logout URLs, replacing `TENANT`:
 
@@ -57,19 +66,19 @@ The response page GET is inspection only. A scored response requires the assigne
 
 ## Gemini
 
-New email casts use the narrative adapter adapted from `main`: one story from the chosen hobby and up to two private sender details, strict `{subject, body}` output, exactly one server-reserved marker, a 1,000-token cap, and an 8-second shared budget. It retries once only for malformed JSON/shape/marker output. Refusals and unsafe output immediately use a labeled prepared fallback. The marker becomes plain preview text; the destination is separately minted by the server. Teaching explanations and fictional sender identity remain server-owned. Legacy generation below continues to support old multi-channel matches.
+New email casts follow main’s **sender context → one editable email** flow. The sender supplies their own target context and angle; there is no three-option message picker. The generator returns strict `{subject, body}` JSON, and the app exposes editable Subject/Message fields. A requested revision includes the current email and the requested change, so manual edits are not discarded merely to regenerate.
 
-Set backend-only `GEMINI_API_KEY` and optionally `GEMINI_MODEL` (default `gemini-2.5-flash`, listed in the [official model catalog](https://ai.google.dev/gemini-api/docs/models) at review). The adapter uses the [generateContent REST contract](https://ai.google.dev/api/generate-content) with a JSON schema and validates the returned object locally. [Structured output](https://ai.google.dev/gemini-api/docs/structured-output) constrains shape, not truth or safety; fixed template consistency and the bounded review still apply.
+The backend default for new email casts is `gemini-3.6-flash`; override it with `GEMINI_MODEL` and keep `GEMINI_API_KEY` backend-only. This is the configured model identifier, not a claim that a real request has been verified. The adapter uses the [generateContent REST contract](https://ai.google.dev/api/generate-content) and [structured output](https://ai.google.dev/gemini-api/docs/structured-output), plus local semantic checks.
 
-Only approved interest tags and fictional fixture content enter generation. There are no browsing/tools/contact scraping capabilities. The request has a 1,500-token output cap and 8-second timeout; the service allows three attempts per draft. Sender name, explanation, and cue annotations stay fixture-owned. Failed, refused, incomplete, unsafe, or inconsistent generations return approved fixtures with private `source`, `model`, `promptVersion`, and reason. The recipient API hides these fields until its normal reveal rules permit answers.
+A new-email request has a 1,000-token cap and an 8-second shared deadline. One retry is allowed for malformed JSON/shape/marker output. The server owns sender identity, approved story facts, teaching explanations and the response URL; generated external destinations are rejected. Input context and revision instructions are treated as untrusted data. Private sender notes never become recipient metadata.
 
-The [Gemini API terms](https://ai.google.dev/gemini-api/terms) include adult access requirements. Review account/data terms before introducing any live data. This demo sends fictional inputs only.
+Without a key, initial generation offers a visibly labeled prepared draft. On an unavailable or rejected revision, the current email is retained for direct editing. Difficulty controls generation-attempt budgets. The separate legacy multi-channel adapter remains for saved old matches; its contract should not be confused with the new email editor.
 
 ## Generic SMTP gameplay email
 
-Supply `SMTP_HOST`, `SMTP_PORT` (default 587), `SMTP_SECURE` (true for implicit TLS), `SMTP_USER`, `SMTP_PASS`, and a plain operator-owned `SMTP_FROM` address. TLS is required. Use a provider whose permission covers the exact gameplay format and fictional display names; authenticated sender/domain setup remains the operator's responsibility.
+Supply `SMTP_HOST`, `SMTP_PORT` (default 587), `SMTP_SECURE` (true for implicit TLS), `SMTP_USER`, `SMTP_PASS`, and a plain operator-owned `SMTP_FROM` address. TLS is required. The private demo uses the truthful Fantasy Phishing display name and explicit game labeling. Full live-mode use of fictional display names requires provider support for that format. Authenticated sender/domain setup remains the operator's responsibility.
 
-The adapter uses plain text, immutable approved copy, and only the server's `/r/:token` link. New matches contain only sender-authored phishing casts; no ordinary emails are sent. It disables template URL/file access. SMTP acceptance is recorded as `accepted`, not delivered-to-inbox. Definitive rejection is `failed`; ambiguous errors/timeouts are `unknown`. There are no provider-specific SMTP delivery callbacks or automatic resends. Consequently an accepted email with no authenticated recipient action remains unresolved at settlement; unclicked-email points require delivery evidence or an authenticated flag. A provider receipt integration is needed for unattended live weekly settlement. Operator reconciliation is needed for unknown outcomes.
+The adapter sends plain text from the saved, validated draft with the server's `/r/:token` link. New matches contain only sender-authored phishing casts; no ordinary gameplay filler is sent. Email sign-in codes are separate account-verification messages. It disables template URL/file access. SMTP acceptance is recorded as `accepted`, not delivered-to-inbox. Definitive rejection is `failed`; ambiguous errors/timeouts are `unknown`. There are no provider-native SMTP callbacks or automatic resends. The signed relay endpoint can ingest genuinely reconciled delivery/bounce evidence; its required external adapter is documented in `docs/EMAIL_RECEIPTS.md`. Consequently an accepted email with no authenticated recipient action remains unresolved at settlement; unclicked-email points require delivery evidence or an authenticated flag. A provider receipt integration is needed for unattended live weekly settlement. Operator reconciliation is needed for unknown outcomes.
 
 No Resend or Mailtrap gameplay adapter is assumed permissible. [Resend's acceptable-use policy](https://resend.com/legal/acceptable-use) prohibits phishing; [Mailtrap's policy](https://mailtrap.io/acceptable-use-policy/) prohibits misleading information in headers/body. Those policies are not authorization for this product. Resend ordinary account/invitation notifications were not added because the first-match demo does not need them.
 
@@ -92,6 +101,8 @@ US application-originated messaging on 10DLC numbers requires [A2P registration]
 
 ## ElevenLabs audio
 
+The current email game does not expose voice challenges. [VOICE_PLAN.md](VOICE_PLAN.md) describes the proposed sender-context → script → generated audio → phone-call integration, including what can realistically be demonstrated today. The adapters below are existing backend foundations, not a completed phone feature.
+
 Supply `ELEVENLABS_API_KEY`, a licensed fictional stock `ELEVENLABS_VOICE_ID`, `ELEVENLABS_PERMISSION_REFERENCE`, and `ELEVENLABS_STOCK_VOICE_CONFIRMED=true`. These are operator assertions. Never substitute a cloned real person's voice. Review the [ElevenLabs use policy](https://elevenlabs.io/use-policy), which restricts harmful deception, unauthorized robocalling, and unauthorized impersonation.
 
 The [text-to-speech endpoint](https://elevenlabs.io/docs/api-reference/text-to-speech/convert) is called only for an approved script, with `eleven_multilingual_v2` and `pcm_16000`. The adapter measures PCM byte duration, rejects output shorter than 15 or longer than 25 seconds, wraps it as a WAV, and atomically caches it under a script/model/voice hash in `AUDIO_CACHE_DIR` (default `data/audio`). A failed audio request or invalid duration blocks the call; it never substitutes silence or a different voice. Cache files need private persistent storage on the API host; expired URLs cannot fetch them. Do not expose this directory as public static content.
@@ -107,4 +118,4 @@ npm test
 npm run typecheck
 ```
 
-The provider suite in `apps/api/test/providers.test.ts` uses mocks and in-process Fastify requests; it needs no provider keys or paid services. Thirteen provider/auth contract tests were run successfully during implementation. They cover generation validation/fallback/timeout, missing readiness and demo-verification rejection, SMTP outcomes, fixed Twilio request fields, invalid signatures, callback dedupe/order, assigned recipient checks, no-input behavior, post-match opt-out, encrypted login state, expiring audio scope, measured duration, cached audio, and pausing during audio preparation before carrier submission. Native build, real Auth0 login, real Mongo replica-set behavior, carrier delivery, SMTP delivery, actual Gemini generation, actual ElevenLabs synthesis, and external callback reachability remain unrun until their actual environments and authorization are supplied.
+The provider suite in `apps/api/test/providers.test.ts` uses mocks and in-process Fastify requests; it needs no provider keys or paid services. Run the current suite for results. Its coverage includes generation validation/fallback/timeout, missing readiness and demo-verification rejection, SMTP outcomes, fixed Twilio request fields, invalid signatures, callback dedupe/order, assigned recipient checks, no-input behavior, post-match opt-out, encrypted login state, expiring audio scope, measured duration, cached audio, and pausing during audio preparation before carrier submission. Native builds, actual Auth0 login, Mongo replica-set behavior, carrier or SMTP delivery, real Gemini output, ElevenLabs synthesis and external callback reachability require separate environment rehearsals. Mock-test success does not verify those providers.

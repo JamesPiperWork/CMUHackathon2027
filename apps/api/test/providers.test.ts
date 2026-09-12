@@ -30,6 +30,7 @@ import {
   voiceTwiml,
 } from "../src/providers.js";
 import { sealLoginState, openLoginState } from "../src/auth-live.js";
+import { synthesizeVoiceDraft, voiceRevision } from "../src/voice-audio.js";
 
 const now = Date.UTC(2026, 8, 12, 16),
   fixture = fixtureContent("email", "ticket-drop", true);
@@ -453,7 +454,7 @@ test("ElevenLabs uses cached validated audio and never fabricates silent fallbac
     await rm(dir, { recursive: true, force: true });
   }
 });
-test("voice dispatch rechecks pause after audio preparation before any carrier submission", async () => {
+test("voice dispatch rechecks pause after reading reviewed audio before any carrier submission", async () => {
   const dir = await mkdtemp(join(tmpdir(), "fp-pause-")),
     env = { ...liveEnv, AUDIO_CACHE_DIR: dir },
     currentNow = Date.now(),
@@ -492,13 +493,11 @@ test("voice dispatch rechecks pause after audio preparation before any carrier s
     order: 0,
   });
   try {
-    await prepareVoiceAudio(e, {
-      env,
-      fetcher: (async () =>
-        new Response(Buffer.alloc(20 * 32000))) as typeof fetch,
-    });
+    const scenario = db.scenarios.find(s => s.id === e.scenarioId)!;
+    const result = await synthesizeVoiceDraft(scenario, { env, fetcher: (async () => new Response(Buffer.alloc(20 * 32000, 1))) as typeof fetch });
+    scenario.voiceAudio = { status: "ready", revision: voiceRevision(scenario.content.voiceScript, env), requestId: "test-only", requestedAt: currentNow, voiceId: env.ELEVENLABS_VOICE_ID, model: "eleven_multilingual_v2", key: result.key, durationSeconds: result.durationSeconds, generatedAt: currentNow, previewedAt: currentNow, approvedAt: currentNow };
     let reloaded = false;
-    const result = await dispatch(
+    const outcome = await dispatch(
       e,
       {
         db,
@@ -514,8 +513,8 @@ test("voice dispatch rechecks pause after audio preparation before any carrier s
       env,
     );
     assert.equal(reloaded, true);
-    assert.equal(result.status, "failed");
-    assert.match(result.reason!, /Eligibility changed/);
+    assert.equal(outcome.status, "failed");
+    assert.match(outcome.reason!, /Eligibility changed/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
