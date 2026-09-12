@@ -52,19 +52,19 @@ export default function Cast() {
   if (sent) {
     return (
       <Page width="max-w-3xl">
-        <Card tone="cyan" className="p-8 sm:p-10">
-          <Eyebrow tone="sky" className="border-prussian/30 text-prussian/70">Cast · slot {sent.weekSlot}</Eyebrow>
-          <Heading className="mt-4 text-prussian">Cast sent.</Heading>
-          <p className="mt-4 max-w-xl text-prussian/80">
+        <Card className="p-8 sm:p-10">
+          <Eyebrow tone="cyan">Cast · slot {sent.weekSlot}</Eyebrow>
+          <Heading className="mt-4">Cast sent.</Heading>
+          <p className="mt-4 max-w-xl text-sky/70">
             It is now in {sent.to?.name}&apos;s in-app inbox. Switch to {sent.to?.name} on the home page and open
             Inbox to see it. Nothing was sent externally.
           </p>
-          <div className="mt-6 break-all rounded-2xl bg-prussian/10 px-4 py-3 font-body text-xs text-prussian/70">
+          <div className="mt-6 break-all rounded-lg border border-white/10 bg-white/5 px-4 py-3 font-body text-xs text-sky/55">
             Tracking link (server-owned) · {sent.trackingUrl}
           </div>
           <div className="mt-8 flex flex-wrap gap-3">
-            <ButtonLink href="/week" variant="sky" className="!bg-prussian !text-sky hover:!bg-indigo">Live scoreboard <ArrowDR className="h-4 w-4" /></ButtonLink>
-            <ButtonLink href="/play" variant="outline" className="!border-prussian/40 !text-prussian">Back to my week</ButtonLink>
+            <ButtonLink href="/week">Live scoreboard <ArrowDR className="h-4 w-4" /></ButtonLink>
+            <ButtonLink href="/play" variant="outline">Back to my week</ButtonLink>
           </div>
         </Card>
       </Page>

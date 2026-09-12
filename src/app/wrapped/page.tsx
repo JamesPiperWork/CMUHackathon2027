@@ -22,37 +22,27 @@ export default function Wrapped() {
   const totalPts = rows.reduce((s, r) => s + r.points, 0);
 
   return (
-    <Page width="max-w-4xl">
-      <Eyebrow tone="icterine">Season 1 · through week {week ? week - 1 : "—"}</Eyebrow>
-      <Heading size="xl" className="mt-4">Wrapped</Heading>
+    <Page width="max-w-3xl">
+      <Eyebrow>Season 1 · through week {week ? week - 1 : "—"}</Eyebrow>
+      <Heading size="xl" className="mt-3">Wrapped</Heading>
 
-      <div className="mt-10 grid gap-4 sm:grid-cols-2">
-        <Card tone="cyan">
-          <Label dark>League leader</Label>
-          <div className="mt-3 font-heading text-6xl leading-none">{leader?.name ?? "—"}</div>
-          <div className="mt-2 font-body text-sm text-prussian/70">{leader ? `${leader.wins}-${leader.losses}-${leader.ties} · ${leader.points} pts` : ""}</div>
-        </Card>
-        <Card>
-          <Label>Your record</Label>
-          <div className="mt-3 font-heading text-6xl leading-none">{me ? `${me.wins}-${me.losses}-${me.ties}` : "—"}</div>
-          <div className="mt-2 font-body text-sm text-sky/60">{me ? `${me.points} season points` : ""}</div>
-        </Card>
-        <Card tone="payne">
-          <Label>Points scored league-wide</Label>
-          <div className="mt-3 font-heading text-6xl leading-none">{totalPts}</div>
-          <div className="mt-2 font-body text-sm text-sky/60">offense + defense, all final weeks</div>
-        </Card>
-        <Card tone="fawn">
-          <Label dark>Playoffs</Label>
-          <div className="mt-3 font-heading text-6xl leading-none">TODO</div>
-          <div className="mt-2 font-body text-sm text-prussian/70">Arcade postseason after week 10 · stub by design</div>
-        </Card>
+      <div className="mt-8 grid gap-3 sm:grid-cols-2">
+        <Metric label="League leader" value={leader?.name ?? "—"} sub={leader ? `${leader.wins}-${leader.losses}-${leader.ties} · ${leader.points} pts` : ""} accent />
+        <Metric label="Your record" value={me ? `${me.wins}-${me.losses}-${me.ties}` : "—"} sub={me ? `${me.points} season points` : ""} />
+        <Metric label="Points league-wide" value={String(totalPts)} sub="offense + defense, all final weeks" />
+        <Metric label="Playoffs" value="TODO" sub="Arcade postseason after week 10 · stub by design" />
       </div>
-      <p className="mt-8 font-body text-xs text-sky/40">Derived from final matchups only. Time-decay bonus is a TODO stub (not implemented).</p>
+      <p className="mt-6 font-body text-xs text-sky/40">Derived from final matchups only. Time-decay bonus is a TODO stub (not implemented).</p>
     </Page>
   );
 }
 
-function Label({ children, dark }: { children: React.ReactNode; dark?: boolean }) {
-  return <div className={`font-body text-[11px] font-medium uppercase tracking-eyebrow ${dark ? "text-prussian/60" : "text-sky/50"}`}>{children}</div>;
+function Metric({ label, value, sub, accent }: { label: string; value: string; sub: string; accent?: boolean }) {
+  return (
+    <Card>
+      <div className="font-body text-[11px] font-semibold uppercase tracking-eyebrow text-sky/45">{label}</div>
+      <div className={`mt-2 font-heading text-4xl leading-none ${accent ? "text-cyan" : "text-sky"}`}>{value}</div>
+      <div className="mt-1.5 font-body text-sm text-sky/55">{sub}</div>
+    </Card>
+  );
 }

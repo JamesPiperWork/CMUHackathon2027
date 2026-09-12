@@ -140,7 +140,7 @@ export default function Inbox() {
       {msg && <div className="mt-5"><Notice tone={msg.tone}>{msg.text}</Notice></div>}
 
       {/* Simulated email client */}
-      <div className="mt-6 overflow-hidden rounded-brand border border-sky/15 bg-white text-[#242424] shadow-2xl" style={SEGOE}>
+      <div className="mt-6 overflow-hidden rounded-brand border border-sky/15 bg-white text-[#242424] shadow-xl" style={SEGOE}>
         {/* App bar */}
         <div className="flex items-center gap-3 bg-[#0f6cbd] px-4 py-2 text-white">
           <span className="font-semibold">Outlook</span>

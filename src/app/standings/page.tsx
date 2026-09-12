@@ -22,10 +22,10 @@ export default function Standings() {
       <Heading className="mt-4">Standings</Heading>
       <p className="mt-3 text-sm text-sky/60">Derived from final matchups only.</p>
 
-      <div className="mt-8 overflow-hidden rounded-brand border border-sky/10 bg-indigo/70">
+      <div className="mt-8 overflow-hidden rounded-brand border border-white/10 bg-white/[0.025]">
         <table className="w-full text-left">
           <thead>
-            <tr className="border-b border-sky/10 font-body text-[11px] font-medium uppercase tracking-eyebrow text-sky/50">
+            <tr className="border-b border-white/10 font-body text-[11px] font-medium uppercase tracking-eyebrow text-sky/50">
               <th className="px-5 py-4 font-medium">#</th>
               <th className="px-5 py-4 font-medium">Player</th>
               <th className="px-3 py-4 text-center font-medium">W</th>
@@ -38,11 +38,11 @@ export default function Standings() {
             {rows.map((r, i) => {
               const you = r.id === mine;
               return (
-                <tr key={r.id} className={`border-b border-sky/10 last:border-0 ${you ? "bg-cyan text-prussian" : ""}`}>
-                  <td className={`px-5 py-4 font-body text-sm ${you ? "text-prussian/60" : "text-sky/40"}`}>{i + 1}</td>
+                <tr key={r.id} className={`border-b border-white/8 last:border-0 ${you ? "bg-cyan/[0.07]" : ""}`}>
+                  <td className="px-5 py-4 font-body text-sm text-sky/40">{i + 1}</td>
                   <td className="px-5 py-4">
                     <span className="font-heading text-2xl leading-none">{r.name}</span>
-                    {you && <span className="ml-3 rounded-full border border-prussian/30 px-2 py-0.5 font-body text-[10px] uppercase tracking-eyebrow">you</span>}
+                    {you && <span className="ml-3 rounded border border-cyan/40 px-2 py-0.5 font-body text-[10px] uppercase tracking-eyebrow text-cyan">you</span>}
                   </td>
                   <td className="px-3 py-4 text-center font-body tabular-nums">{r.wins}</td>
                   <td className="px-3 py-4 text-center font-body tabular-nums">{r.losses}</td>

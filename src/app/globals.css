@@ -10,53 +10,22 @@ html {
   background: #0a2536;
 }
 
+/* Flat, calm ground — no gradient, no grain. */
 body {
   @apply bg-prussian text-sky font-body antialiased;
-  background-image:
-    radial-gradient(120% 80% at 50% -10%, #33566d 0%, #153954 45%, #0a2536 100%);
-  background-attachment: fixed;
-  position: relative;
   min-height: 100vh;
 }
 
-/* Film-grain texture from the brand's Textures/Patterns page. */
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  opacity: 0.09;
-  mix-blend-mode: soft-light;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 1 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
-}
-
-body > * {
-  position: relative;
-  z-index: 1;
-}
-
 @layer components {
-  /* Dashed chevron pattern (brand texture #1), used as a subtle section backdrop. */
-  .pattern-chevron {
-    background-image:
-      repeating-linear-gradient(45deg, rgba(242, 253, 255, 0.07) 0 1px, transparent 1px 14px),
-      repeating-linear-gradient(-45deg, rgba(242, 253, 255, 0.07) 0 1px, transparent 1px 14px);
-  }
-  .pattern-chevron-dark {
-    background-image:
-      repeating-linear-gradient(45deg, rgba(10, 37, 54, 0.08) 0 1px, transparent 1px 14px),
-      repeating-linear-gradient(-45deg, rgba(10, 37, 54, 0.08) 0 1px, transparent 1px 14px);
-  }
-  /* Fine vertical-line texture (brand texture #3). */
-  .pattern-lines {
-    background-image: repeating-linear-gradient(90deg, rgba(242, 253, 255, 0.06) 0 1px, transparent 1px 6px);
-  }
   .hairline {
-    @apply border-sky/15;
+    @apply border-white/10;
+  }
+  /* Neutral panel surface used across the app. */
+  .surface {
+    @apply rounded-brand border border-white/10 bg-white/[0.025];
   }
   .input {
-    @apply w-full rounded-2xl border border-sky/15 bg-prussian/60 px-4 py-3 text-sky placeholder:text-sky/30 outline-none transition focus:border-cyan/70 focus:ring-2 focus:ring-cyan/20;
+    @apply w-full rounded-lg border border-white/10 bg-white/[0.03] px-3.5 py-2.5 text-[15px] text-sky placeholder:text-sky/30 outline-none transition focus:border-cyan/60 focus:bg-white/[0.05];
   }
 }
 

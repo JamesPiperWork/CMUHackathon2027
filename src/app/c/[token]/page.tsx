@@ -23,7 +23,7 @@ export default function TeachingPage({ params }: { params: { token: string } }) 
   return (
     <main className="mx-auto max-w-3xl px-5 pb-20 pt-10 sm:pt-14">
       <div className="overflow-hidden rounded-brand border border-sky bg-sky text-prussian">
-        <div className="pattern-chevron-dark border-b border-prussian/10 px-6 py-8 sm:px-10 sm:py-10">
+        <div className="border-b border-prussian/10 px-6 py-8 sm:px-10 sm:py-10">
           <span className="inline-flex items-center gap-2 rounded-full border border-prussian/40 px-3 py-1 font-body text-[11px] font-medium uppercase tracking-eyebrow text-prussian">
             <Hook className="h-3.5 w-3.5" /> Gotcha · training simulation
           </span>
@@ -78,8 +78,8 @@ export default function TeachingPage({ params }: { params: { token: string } }) 
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-between gap-4 border-t border-prussian/10 pt-6">
             <div className="flex gap-3">
-              <Link href="/week" className="inline-flex items-center gap-2 rounded-full bg-prussian px-5 py-2.5 font-body text-sm font-medium text-sky hover:bg-indigo">Live scoreboard <ArrowDR className="h-4 w-4" /></Link>
-              <Link href="/inbox" className="inline-flex items-center rounded-full border border-prussian/40 px-5 py-2.5 font-body text-sm font-medium text-prussian">Back to inbox</Link>
+              <Link href="/week" className="inline-flex items-center gap-2 rounded-lg bg-prussian px-5 py-2.5 font-body text-sm font-medium text-sky hover:bg-indigo">Live scoreboard <ArrowDR className="h-4 w-4" /></Link>
+              <Link href="/inbox" className="inline-flex items-center rounded-lg border border-prussian/40 px-5 py-2.5 font-body text-sm font-medium text-prussian">Back to inbox</Link>
             </div>
             <Logo tone="prussian" />
           </div>

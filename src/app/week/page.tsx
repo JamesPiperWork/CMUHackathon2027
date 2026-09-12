@@ -31,32 +31,30 @@ export default function Week() {
   const matchups = data?.matchups || [];
 
   return (
-    <Page width="max-w-6xl">
+    <Page>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <Eyebrow>
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyan" /> Live · polling every 2s
-          </Eyebrow>
-          <Heading className="mt-4">Scoreboard <span className="italic text-sky/40">Week {data?.week ?? "…"}</span></Heading>
+          <Eyebrow>Live · updates every 2s</Eyebrow>
+          <Heading className="mt-3">Scoreboard <span className="text-sky/35">· Week {data?.week ?? "…"}</span></Heading>
         </div>
         <Button onClick={closeWeek} disabled={closing} variant="outline">{closing ? "Closing…" : "Close week & advance"}</Button>
       </div>
-      {msg && <div className="mt-5"><Notice tone="icterine">{msg}</Notice></div>}
+      {msg && <div className="mt-5"><Notice tone="cyan">{msg}</Notice></div>}
 
-      <div className="mt-8 grid gap-4 sm:grid-cols-2">
+      <div className="mt-7 grid gap-3 sm:grid-cols-2">
         {matchups.map((m: any) => {
           const isMine = m.homeId === mine || m.awayId === mine;
           const final = m.status === "final";
           return (
-            <div key={m.id} className={`rounded-brand border p-6 ${isMine ? "border-cyan bg-cyan text-prussian" : "border-sky/10 bg-indigo/70 text-sky"}`}>
-              <div className={`flex items-center justify-between font-body text-[11px] font-medium uppercase tracking-eyebrow ${isMine ? "text-prussian/60" : "text-sky/40"}`}>
+            <div key={m.id} className={`rounded-brand border p-5 ${isMine ? "border-cyan/50 bg-cyan/[0.06]" : "border-white/10 bg-white/[0.025]"}`}>
+              <div className="flex items-center justify-between font-body text-[11px] font-semibold uppercase tracking-eyebrow text-sky/40">
                 <span>{isMine ? "Your matchup" : "Matchup"}</span>
-                <span className={final ? (isMine ? "text-prussian" : "text-icterine") : ""}>{final ? "Final" : "Live"}</span>
+                <span className={final ? "text-sky/60" : "text-cyan"}>{final ? "Final" : "Live"}</span>
               </div>
-              <div className="mt-5 space-y-3">
-                <Row name={m.homeName} score={m.homeScore} win={final && m.winnerId === m.homeId} you={m.homeId === mine} mine={isMine} />
-                <div className={`border-t ${isMine ? "border-prussian/15" : "border-sky/10"}`} />
-                <Row name={m.awayName} score={m.awayScore} win={final && m.winnerId === m.awayId} you={m.awayId === mine} mine={isMine} />
+              <div className="mt-4 space-y-3">
+                <Row name={m.homeName} score={m.homeScore} win={final && m.winnerId === m.homeId} you={m.homeId === mine} />
+                <div className="border-t border-white/10" />
+                <Row name={m.awayName} score={m.awayScore} win={final && m.winnerId === m.awayId} you={m.awayId === mine} />
               </div>
             </div>
           );
@@ -67,15 +65,15 @@ export default function Week() {
   );
 }
 
-function Row({ name, score, win, you, mine }: { name: string; score: number; win: boolean; you: boolean; mine: boolean }) {
+function Row({ name, score, win, you }: { name: string; score: number; win: boolean; you: boolean }) {
   return (
     <div className="flex items-center justify-between">
-      <div className="flex items-center gap-3">
-        <span className="font-heading text-3xl leading-none">{name}</span>
-        {you && <span className={`rounded-full border px-2 py-0.5 font-body text-[10px] uppercase tracking-eyebrow ${mine ? "border-prussian/30" : "border-cyan text-cyan"}`}>you</span>}
-        {win && <span className={`font-body text-[10px] uppercase tracking-eyebrow ${mine ? "text-prussian/70" : "text-icterine"}`}>Win</span>}
+      <div className="flex items-center gap-2.5">
+        <span className="font-heading text-2xl leading-none text-sky">{name}</span>
+        {you && <span className="rounded border border-cyan/40 px-1.5 py-0.5 font-body text-[10px] uppercase tracking-eyebrow text-cyan">you</span>}
+        {win && <span className="font-body text-[10px] uppercase tracking-eyebrow text-sky/50">Win</span>}
       </div>
-      <span className="font-heading text-5xl leading-none tabular-nums">{score}</span>
+      <span className="font-heading text-4xl leading-none tabular-nums text-sky">{score}</span>
     </div>
   );
 }

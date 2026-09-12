@@ -21,10 +21,10 @@ const config: Config = {
         body: ["Almarena", "var(--font-body)", "system-ui", "sans-serif"],
       },
       borderRadius: {
-        brand: "1.5rem",
+        brand: "0.75rem",
       },
       letterSpacing: {
-        eyebrow: "0.18em",
+        eyebrow: "0.14em",
       },
     },
   },
