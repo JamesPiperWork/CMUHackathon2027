@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { blankGame, type Database, type LeagueSummary, type LeagueSettings, type LeagueMatchup, type MatchStory, type Session } from '@fp/shared';
+import { blankGame, buildSchedule, type Database, type LeagueSummary, type LeagueSettings, type LeagueMatchup, type MatchStory, type Session } from '@fp/shared';
 import { ApiError, type GameService } from './service.js';
 import { gamePools } from './repository.js';
 
@@ -31,7 +31,8 @@ export class LeagueService {
       if (db.leagues!.filter((l) => l.commissionerId === session.userId).length >= 10) throw new ApiError(409, 'You already manage ten leagues');
       const source = db.members.find((m) => m.userId === session.userId)!;
       const id = randomUUID();
-      db.leagues!.push({ id, name, inviteCode: randomBytes(5).toString('hex').toUpperCase(), commissionerId: session.userId, currentWeek: 1, season: new Date(this.service.now(db)).getFullYear(), settings: { difficulty: 'standard', familyFriendly: true, channels: { email: true, sms: true, voice: true } }, createdAt: this.service.now(db), standings: { [session.userId]: { leaguePoints: 0, wins: 0, losses: 0, draws: 0 } } });
+      const multiChannel = this.service.config.ruleSet !== 'email-casts-v2';
+      db.leagues!.push({ id, name, inviteCode: randomBytes(5).toString('hex').toUpperCase(), commissionerId: session.userId, currentWeek: 1, season: new Date(this.service.now(db)).getFullYear(), settings: { difficulty: 'standard', familyFriendly: true, channels: { email: true, sms: multiChannel, voice: multiChannel } }, createdAt: this.service.now(db), standings: { [session.userId]: { leaguePoints: 0, wins: 0, losses: 0, draws: 0 } } });
       db.members.push({ ...structuredClone(source), leagueId: id });
       this.setSelection(db, session, id);
       return leagueSummaries(db, session.userId).find((l) => l.id === id)!;
@@ -52,26 +53,40 @@ export class LeagueService {
       return leagueSummaries(db, session.userId).find((l) => l.id === league.id)!;
     });
   }
+  private scheduleCycle(db: Database, leagueId: string) {
+    const league = db.leagues!.find((l) => l.id === leagueId)!;
+    const playerIds = db.members.filter((m) => m.leagueId === leagueId).map((m) => m.userId);
+    if (playerIds.length < 2) return undefined;
+    const cycle = league.scheduleCycle;
+    if (!cycle || playerIds.length !== cycle.playerIds.length || playerIds.some((id, i) => id !== cycle.playerIds[i])) {
+      // A roster change starts a fresh cycle anchored to assignments players
+      // already received. Joining never changes an opponent or adds a rematch
+      // to someone who has already played this week.
+      const firstRound: [string, string][] = gamePools(db)
+        .filter((p) => p.match.leagueId === leagueId && p.match.week === league.currentWeek)
+        .map((p) => [p.match.players[0], p.match.players[1]]);
+      league.scheduleCycle = { playerIds, firstWeek: league.currentWeek, firstRound };
+    }
+    return league.scheduleCycle!;
+  }
   private schedule(db: Database, leagueId: string) {
     const league = db.leagues!.find((l) => l.id === leagueId)!;
-    const playing = gamePools(db).filter((p) => p.match.leagueId === leagueId && p.match.week === league.currentWeek).flatMap((p) => p.match.players);
-    let waiting = db.members.filter((m) => m.leagueId === leagueId && !playing.includes(m.userId)).map((m) => m.userId);
-    // Circle scheduling changes opponents each week; existing assignments never move.
-    if (waiting.length > 2 && !playing.length) {
-      const circle: (string | null)[] = [...waiting];
-      if (circle.length % 2) circle.push(null);
-      for (let turn = 0; turn < (league.currentWeek - 1) % (circle.length - 1); turn++) circle.splice(1, 0, circle.pop()!);
-      waiting = [];
-      for (let i = 0; i < circle.length / 2; i++) {
-        const pair = [circle[i], circle[circle.length - 1 - i]];
-        if (pair.every((id) => id !== null)) waiting.push(...pair as string[]);
-      }
-    }
-    for (let i = 0; i + 1 < waiting.length; i += 2) {
-      const pool = blankGame(randomUUID(), leagueId, waiting.slice(i, i + 2), league.currentWeek, this.service.now(db));
+    const cycle = this.scheduleCycle(db, leagueId);
+    if (!cycle) return;
+    const playing = new Set(gamePools(db).filter((p) => p.match.leagueId === leagueId && p.match.week === league.currentWeek).flatMap((p) => p.match.players));
+    const cycleLength = cycle.playerIds.length % 2 ? cycle.playerIds.length : cycle.playerIds.length - 1;
+    const round = (league.currentWeek - cycle.firstWeek) % cycleLength + 1;
+    const { pairings } = buildSchedule(cycle.playerIds.length, round, cycle.firstRound.map(([a, b]) => [cycle.playerIds.indexOf(a), cycle.playerIds.indexOf(b)]));
+    for (const pair of pairings.filter((p) => p.week === round)) {
+      const players = [cycle.playerIds[pair.homeIndex], cycle.playerIds[pair.awayIndex]];
+      if (players.some((id) => playing.has(id))) continue;
+      const pool = blankGame(randomUUID(), leagueId, players, league.currentWeek, this.service.now(db));
+      pool.match.season = league.season;
+      pool.match.ruleSet = this.service.config.ruleSet;
       const ranked = db.profiles.filter((p) => db.members.some((m) => m.leagueId === leagueId && m.userId === p.id)).map((p) => ({ ...p, ...league.standings?.[p.id] })).sort((a, b) => b.leaguePoints - a.leaguePoints || a.name.localeCompare(b.name));
       pool.match.standingsBefore = Object.fromEntries(ranked.map((p, index) => [p.id, index + 1]));
       db.matchPools!.push(pool);
+      players.forEach((id) => playing.add(id));
     }
   }
   private setSelection(db: Database, session: Session, leagueId: string, matchId?: string) {
@@ -100,6 +115,7 @@ export class LeagueService {
       const league = requireLeague(db, session.userId, leagueId);
       if (league.commissionerId !== session.userId) throw new ApiError(403, 'Only the commissioner can change league rules');
       if (!Object.values(settings.channels).some(Boolean)) throw new ApiError(400, 'Enable at least one channel');
+      if (this.service.config.ruleSet === 'email-casts-v2' && !settings.channels.email) throw new ApiError(400, 'Email must stay enabled for email cast matches.');
       const channelChange = Object.keys(settings.channels).some((key) => settings.channels[key as keyof typeof settings.channels] !== league.settings.channels[key as keyof typeof settings.channels]);
       if (channelChange && gamePools(db).some((p) => p.match.leagueId === leagueId && p.match.week === league.currentWeek && (p.match.state !== 'drafting' || p.scenarios.some((s) => s.authorId)))) throw new ApiError(409, 'Channel rules are locked after drafting begins. Change them in a new week before anyone drafts.');
       league.settings = settings;
@@ -112,6 +128,9 @@ export class LeagueService {
       if (league.commissionerId !== session.userId) throw new ApiError(403, 'Only the commissioner can schedule a new week');
       const current = gamePools(db).filter((p) => p.match.leagueId === leagueId && p.match.week === league.currentWeek);
       if (!current.length || current.some((p) => !['completed', 'cancelled'].includes(p.match.state))) throw new ApiError(409, 'Finish every matchup before scheduling the next week');
+      // Older persisted leagues have no cycle metadata. Anchor their existing
+      // week before advancing so those matchups remain the first rotation round.
+      this.scheduleCycle(db, leagueId);
       league.currentWeek++;
       this.schedule(db, leagueId);
       this.setSelection(db, session, leagueId);
@@ -162,6 +181,15 @@ export class LeagueService {
       if (!scenario || !scenario.isPhishing || !scenario.authorId) return [];
       return [{ id: decision.id, kind: decision.correct ? 'defense' as const : 'attack' as const, actorName: name(decision.correct ? decision.recipientId : scenario.authorId), targetName: name(decision.correct ? scenario.authorId : decision.recipientId), text: scenario.channel === 'email' ? scenario.content.bodyText : scenario.channel === 'sms' ? scenario.content.smsText : scenario.content.voiceScript, detail: decision.correct ? `${name(decision.recipientId)} spotted the unexpected change and flagged it.` : `${name(decision.recipientId)} trusted “${scenario.content.subject}”. ${scenario.content.explanation}`, channel: scenario.channel, points: decision.correct ? decision.defenderPoints : decision.authorPoints, createdAt: decision.createdAt }];
     }).sort((a, b) => (a.kind === 'attack' ? 0 : 1) - (b.kind === 'attack' ? 0 : 1) || a.createdAt - b.createdAt).slice(0, 5);
+    if (pool.match.ruleSet === "email-casts-v2") {
+      for (const event of pool.scoreEvents.filter(e => e.type === "avoidance")) {
+        const scenario = pool.scenarios.find(s => s.id === event.sourceId);
+        if (!scenario || !scenario.authorId) continue;
+        const prior = highlights.find(h => pool.decisions.some(d => d.id === h.id && d.scenarioId === scenario.id));
+        if (prior) { prior.points = event.points; prior.detail = `${name(event.userId)} flagged the bait and earned +1 when the week ended.`; continue; }
+        highlights.push({ id: event.id, kind: "avoidance", actorName: name(event.userId), targetName: name(scenario.authorId), text: scenario.content.bodyText, detail: `${name(event.userId)} never opened this cast's link. +1 at the weekly deadline.`, channel: "email", points: 1, createdAt: pool.match.completedAt! });
+      }
+    }
     const chat = (db.chat ?? []).filter((m) => m.leagueId === leagueId && pool.match.players.includes(m.userId) && m.createdAt >= (pool.match.startedAt ?? 0) && m.createdAt <= pool.match.completedAt! + 86400000).slice(-3);
     highlights.push(...chat.map((m) => ({ id: m.id, kind: 'chat' as const, actorName: name(m.userId), text: m.body, createdAt: m.createdAt })));
     return { id: matchId, leagueName: league.name, week: pool.match.week ?? 4, players: pool.match.players.map((id) => leagueProfile(db, id, leagueId)), scores: pool.match.scores, winnerId: pool.match.winnerId, completedAt: pool.match.completedAt!, synthetic: pool.match.synthetic ?? false, highlights };

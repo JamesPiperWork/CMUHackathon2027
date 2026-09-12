@@ -5,6 +5,8 @@ import {
   interests,
   type ApprovedContent,
   type Channel,
+  type DraftPublic,
+  type DeliveryStatus,
   type Interest,
   type ScoutingProfile,
 } from "@fp/shared";
@@ -28,10 +30,27 @@ import {
 import { Welcome } from "./index";
 
 type Step = "choose" | "review" | "ready";
+type BaitChoice = {
+  id: string;
+  label: string;
+  channel: Channel;
+  kind?: "regular" | "spear";
+  slot?: 1 | 2;
+};
 const channelNames: Record<Channel, string> = {
   email: "Email",
   sms: "Text",
   voice: "Call",
+};
+const deliveryLabels: Record<DeliveryStatus, string> = {
+  queued: "Queued for delivery",
+  simulated: "Delivered in app",
+  accepted: "Accepted by mail provider",
+  delivered: "Delivered",
+  failed: "Delivery failed",
+  unknown: "Delivery unconfirmed",
+  cancelled: "Delivery cancelled",
+  unanswered: "No answer",
 };
 const baitIdeas: Record<Interest, { template: string }> = {
   "Board games": { template: "parcel-update" },
@@ -89,6 +108,8 @@ export default function Draft() {
   const { state, busy, request } = useSession();
   const scrollToTop = useScreenScroll();
   const [channel, setChannel] = useState<Channel>("email");
+  const [cast, setCast] = useState("cast-1");
+  const [handwritingId, setHandwritingId] = useState<string | null>(null);
   const [step, setStep] = useState<Step>("choose");
   const [interest, setInterest] = useState<Interest>("Board games");
   const [template, setTemplate] = useState("parcel-update");
@@ -111,24 +132,37 @@ export default function Draft() {
     state.selectedLeagueId !== state.match.leagueId;
   const targetId = state?.opponent.id;
   const leagueId = state?.match.leagueId;
-  const draft = state?.drafts.find((item) => item.channel === channel);
+  const emailCasts = state?.castRules.version === "email-casts-v2";
   const league = state?.leagues?.find((item) => item.id === leagueId);
   const enabledKey = (Object.keys(channelNames) as Channel[])
     .filter((item) => !league || league.settings.channels[item])
     .join(",");
+  const choices: BaitChoice[] = emailCasts
+    ? [
+        { id: "cast-1", label: "Cast 1", channel: "email", kind: "regular", slot: 1 },
+        { id: "cast-2", label: "Cast 2", channel: "email", kind: "regular", slot: 2 },
+        { id: "spear", label: "Spear", channel: "email", kind: "spear" },
+      ]
+    : (enabledKey.split(",").filter(Boolean) as Channel[]).map((item) => ({ id: item, label: channelNames[item], channel: item }));
+  const selectedChoice = choices.find((choice) => choice.id === (emailCasts ? cast : channel)) || choices[0];
+  const matchesChoice = (item: DraftPublic, choice: BaitChoice) => emailCasts
+    ? item.channel === "email" && (item.kind || "regular") === choice.kind && (choice.kind === "spear" || (item.slot || 1) === choice.slot)
+    : item.channel === choice.channel;
+  const draft = selectedChoice && state?.drafts.find((item) => matchesChoice(item, selectedChoice));
 
   useEffect(() => {
     scrollToTop();
-  }, [step, channel, scrollToTop]);
+  }, [step, channel, cast, scrollToTop]);
 
   useEffect(() => {
-    if (params.channel && ["email", "sms", "voice"].includes(params.channel))
+    if (emailCasts) setChannel("email");
+    else if (params.channel && ["email", "sms", "voice"].includes(params.channel))
       setChannel(params.channel as Channel);
-  }, [params.channel]);
+  }, [params.channel, emailCasts]);
   useEffect(() => {
-    const enabled = enabledKey.split(",") as Channel[];
+    const enabled: Channel[] = emailCasts ? ["email"] : enabledKey.split(",") as Channel[];
     if (enabled[0] && !enabled.includes(channel)) setChannel(enabled[0]);
-  }, [enabledKey, channel]);
+  }, [enabledKey, channel, emailCasts]);
   useEffect(() => {
     setContent(draft?.content ?? null);
     setDirty(false);
@@ -146,7 +180,7 @@ export default function Draft() {
         ? "choose"
         : draft && current === "review"
           ? "review"
-          : draft?.locked || (state && state.match.state !== "drafting")
+          : draft?.locked || (state && state.match.state !== "drafting" && !(emailCasts && state.match.state === "active"))
             ? "ready"
             : draft
               ? "review"
@@ -160,6 +194,7 @@ export default function Draft() {
     draft?.generationStatus,
     state?.match.id,
     state?.match.state,
+    emailCasts,
   ]);
   useEffect(() => {
     let active = true;
@@ -191,6 +226,24 @@ export default function Draft() {
       active = false;
     };
   }, [targetId, leagueId, waiting, retry, request]);
+  useEffect(() => {
+    if (handwritingId && draft?.id === handwritingId) {
+      setStep("review");
+      setEditing(true);
+      setHandwritingId(null);
+    }
+  }, [handwritingId, draft?.id]);
+  // Pick an entry point once per match, without moving an in-progress editor
+  // whenever the session refreshes in the background.
+  useEffect(() => {
+    if (!emailCasts || !state) return;
+    const existing = state.drafts.find((item) => item.channel === "email");
+    if (state.drafts.some((item) => item.channel === "email" && item.locked)) {
+      setStep("ready");
+    } else if (existing) {
+      setCast(existing.kind === "spear" ? "spear" : `cast-${existing.slot || 1}`);
+    }
+  }, [state?.me.id, state?.match.id, emailCasts]);
 
   const run = async (name: string, action: () => Promise<void>) => {
     setWorking(name);
@@ -227,12 +280,12 @@ export default function Draft() {
       </View>
     );
 
-  const enabledChannels = enabledKey.split(",").filter(Boolean) as Channel[];
   const difficulty = league?.settings.difficulty ?? "standard";
   const budget = difficulty === "rookie" ? 5 : difficulty === "expert" ? 1 : 3;
   const attemptsLeft = Math.max(0, budget - (draft?.generationAttempts ?? 0));
   const generating = draft?.generationStatus === "pending";
-  const locked = !!draft?.locked || state.match.state !== "drafting";
+  const canCast = state.match.state === "drafting" || (emailCasts && state.match.state === "active");
+  const locked = !!draft?.locked || !canCast;
   const disabled = !!working || busy || generating;
   const key =
     channel === "email"
@@ -247,17 +300,20 @@ export default function Draft() {
     content[key].length >= min &&
     content[key].length <= max &&
     content.subject.length >= 3;
-  const unfinished = state.drafts.some((item) => !item.locked);
-  const readyCount = state.drafts.filter((item) => item.locked).length;
-  const chooseChannel = (next: Channel) => {
-    setChannel(next);
+  const activeDrafts = state.drafts.filter((item) => !emailCasts || item.channel === "email");
+  const unfinished = activeDrafts.some((item) => !item.locked);
+  const readyCount = activeDrafts.filter((item) => item.locked && (!emailCasts || item.kind !== "spear")).length;
+  const spearUnavailable = emailCasts && selectedChoice?.kind === "spear" && !draft?.locked && state.castRules.spearRemaining === 0;
+  const chooseBait = (next: BaitChoice) => {
+    setChannel(next.channel);
+    if (emailCasts) setCast(next.id);
     setEditing(false);
     setError(null);
-    const existing = state.drafts.find((item) => item.channel === next);
+    const existing = state.drafts.find((item) => matchesChoice(item, next));
     setStep(existing ? "review" : "choose");
   };
-  const createMessage = () =>
-    void run("create", async () => {
+  const createMessage = (handwritten = false) =>
+    void run(handwritten ? "write" : "create", async () => {
       const profile = await request<ScoutingProfile>(
         `/api/scouting/${encodeURIComponent(state.opponent.id)}`,
         { interests: [interest], markdown: notesEdited ? notes : savedNotes },
@@ -265,12 +321,14 @@ export default function Draft() {
       );
       setSavedNotes(profile.markdown);
       setNotesEdited(false);
-      await request("/api/drafts/generate", {
+      const result = await request<{ scenarioId: string }>(handwritten ? "/api/drafts/prepare" : "/api/drafts/generate", {
         recipientMemberId: state.opponent.id,
         channel,
         interest,
         templateId: template,
+        ...(emailCasts ? { kind: selectedChoice.kind, slot: selectedChoice.slot } : {}),
       });
+      if (handwritten) setHandwritingId(result.scenarioId);
     });
   const useBait = () =>
     void run("save", async () => {
@@ -339,49 +397,54 @@ export default function Draft() {
 
       {step !== "ready" && (
         <Row style={{ flexWrap: "wrap", gap: 8 }}>
-          {enabledChannels.map((item) => (
+          {choices.map((item) => {
+            const chosen = item.id === selectedChoice.id;
+            const existing = state.drafts.find((candidate) => matchesChoice(candidate, item));
+            const unavailable = emailCasts && item.kind === "spear" && !existing && state.castRules.spearRemaining === 0;
+            return (
             <Pressable
-              key={item}
+              key={item.id}
               accessibilityRole="radio"
-              accessibilityLabel={`${channelNames[item]} bait`}
-              aria-checked={channel === item}
+              accessibilityLabel={`${item.label} bait`}
+              aria-checked={chosen}
               accessibilityState={{
-                checked: channel === item,
-                disabled: disabled || dirty,
+                checked: chosen,
+                disabled: disabled || dirty || unavailable,
               }}
-              disabled={disabled || dirty}
-              onPress={() => chooseChannel(item)}
+              disabled={disabled || dirty || unavailable}
+              onPress={() => chooseBait(item)}
               style={{
                 minHeight: 44,
-                paddingHorizontal: 17,
+                paddingHorizontal: emailCasts ? 14 : 17,
                 borderRadius: 24,
                 borderWidth: 1,
-                borderColor: channel === item ? C.teal : C.border,
-                backgroundColor: channel === item ? C.tealDark : C.panel,
+                borderColor: chosen ? C.teal : C.border,
+                backgroundColor: chosen ? C.tealDark : C.panel,
+                opacity: unavailable ? 0.45 : 1,
                 flexDirection: "row",
                 alignItems: "center",
                 gap: 8,
               }}
             >
               <Icon
-                name={item === "email" ? "mail" : item}
+                name={item.kind === "spear" ? "hook" : item.channel === "email" ? "mail" : item.channel}
                 size={16}
-                color={channel === item ? C.teal : C.muted}
+                color={chosen ? C.teal : C.muted}
               />
               <Txt
                 style={{
                   fontSize: 13,
-                  color: channel === item ? C.teal : C.muted,
+                  color: chosen ? C.teal : C.muted,
                 }}
               >
-                {channelNames[item]}
+                {item.label}
               </Txt>
-              {state.drafts.find((candidate) => candidate.channel === item)
-                ?.locked && <Icon name="check" size={13} color={C.teal} />}
+              {existing?.locked && <Icon name="check" size={13} color={C.teal} />}
             </Pressable>
-          ))}
+          );})}
         </Row>
       )}
+      {step !== "ready" && emailCasts && selectedChoice.kind === "spear" && <Txt muted style={{ fontSize: 13, lineHeight: 21 }}>An optional extra email, once per league season. Your Spear is used when you make this bait ready.</Txt>}
 
       {step === "choose" && (
         <Card style={{ gap: 16 }}>
@@ -471,11 +534,12 @@ export default function Draft() {
               <Button
                 icon="sparkle"
                 loading={working === "create" || generating}
-                disabled={disabled || locked || attemptsLeft === 0}
-                onPress={createMessage}
+                disabled={disabled || locked || spearUnavailable || attemptsLeft === 0}
+                onPress={() => createMessage()}
               >
                 {generating ? "Creating your message…" : "Create message"}
               </Button>
+              {emailCasts && selectedChoice.kind === "spear" && <Button variant="secondary" loading={working === "write"} disabled={disabled || locked || spearUnavailable} onPress={() => createMessage(true)}>Write my own Spear</Button>}
               {attemptsLeft === 0 && (
                 <Txt muted style={{ fontSize: 12, lineHeight: 20 }}>
                   You've used all your new versions. You can still edit the
@@ -514,14 +578,14 @@ export default function Draft() {
                     <Txt muted style={{ fontSize: 12 }}>
                       {attemptsLeft} new{" "}
                       {attemptsLeft === 1 ? "version" : "versions"} remaining
-                      for this {channelNames[channel].toLowerCase()}.
+                      for this {emailCasts ? "cast" : channelNames[channel].toLowerCase()}.
                     </Txt>
                   </View>
                 )}
               </View>
             </>
           )}
-          {!unfinished && (
+          {!emailCasts && !unfinished && (
             <Button
               variant="ghost"
               disabled={disabled}
@@ -530,6 +594,7 @@ export default function Draft() {
               Use prepared messages instead
             </Button>
           )}
+          {emailCasts && activeDrafts.some((item) => item.locked) && <Button variant="ghost" disabled={disabled || dirty} onPress={() => setStep("ready")}>Review your casts</Button>}
         </Card>
       )}
 
@@ -633,13 +698,13 @@ export default function Draft() {
               <Button
                 icon="check"
                 loading={working === "save"}
-                disabled={disabled || !valid}
+                disabled={disabled || !valid || spearUnavailable}
                 onPress={useBait}
               >
-                Use this bait
+                {emailCasts && state.match.state === "active" ? "Send cast" : "Use this bait"}
               </Button>
               <Txt muted style={{ fontSize: 12, textAlign: "center" }}>
-                Saves your changes and makes this message ready.
+                {emailCasts && state.match.state === "active" ? "Saves your changes and queues this email for delivery." : emailCasts && selectedChoice.kind === "spear" ? "Saves your message and uses your seasonal Spear." : "Saves your changes and makes this message ready."}
               </Txt>
               <Button
                 variant="ghost"
@@ -652,7 +717,7 @@ export default function Draft() {
           ) : (
             <>
               <Txt muted style={{ lineHeight: 21 }}>
-                This bait is saved and ready. It can't be changed now.
+                {emailCasts && state.match.state === "active" && draft ? `${deliveryLabels[draft.deliveryStatus]}. This cast can't be changed now.` : "This bait is saved and ready. It can't be changed now."}
               </Txt>
               <Button onPress={() => setStep("ready")}>Continue</Button>
             </>
@@ -707,23 +772,26 @@ export default function Draft() {
               {state.match.state === "drafting"
                 ? "Ready to cast?"
                 : state.match.state === "active"
-                  ? "Your bait is in the water."
+                  ? emailCasts ? "Your casts this week." : "Your bait is in the water."
                   : "This round is finished."}
             </Txt>
             <Txt muted style={{ textAlign: "center", lineHeight: 21 }}>
-              {state.match.state === "drafting"
+              {emailCasts && canCast
+                ? `${readyCount} of ${state.castRules.regularLimit} regular casts ${state.match.state === "active" ? "ready or sent" : "ready"}. ${state.match.state === "active" ? "You can add your remaining bait during the week." : "Start with one, or prepare both before you begin."}`
+                : state.match.state === "drafting"
                 ? `${readyCount} ${readyCount === 1 ? "message" : "messages"} ready. We'll fill any empty spots with prepared messages.`
                 : "Open your inbox to see what came your way."}
             </Txt>
           </View>
           <View>
-            {enabledChannels.map((item) => {
+            {choices.map((item) => {
               const candidate = state.drafts.find(
-                (value) => value.channel === item,
+                (value) => matchesChoice(value, item),
               );
+              const unavailable = emailCasts && item.kind === "spear" && !candidate && state.castRules.spearRemaining === 0;
               return (
                 <View
-                  key={item}
+                  key={item.id}
                   style={{
                     borderTopWidth: 1,
                     borderColor: C.border,
@@ -733,34 +801,34 @@ export default function Draft() {
                   <Row style={{ justifyContent: "space-between" }}>
                     <Row>
                       <Icon
-                        name={item === "email" ? "mail" : item}
+                        name={item.kind === "spear" ? "hook" : item.channel === "email" ? "mail" : item.channel}
                         color={candidate?.locked ? C.teal : C.muted}
                       />
                       <View style={{ gap: 4 }}>
                         <Txt style={{ fontWeight: "700" }}>
-                          {channelNames[item]}
+                          {item.label}{item.kind === "spear" ? " · optional" : ""}
                         </Txt>
                         <Txt muted style={{ fontSize: 12 }}>
                           {candidate?.locked
-                            ? "Your bait is ready"
+                            ? emailCasts && state.match.state !== "drafting" ? deliveryLabels[candidate.deliveryStatus] : "Your bait is ready"
                             : candidate
                               ? "Needs your review"
-                              : "Prepared message"}
+                              : unavailable ? "Used this season" : item.kind === "spear" ? "One extra cast this season" : emailCasts ? "Choose your bait" : "Prepared message"}
                         </Txt>
                       </View>
                     </Row>
-                    {candidate || state.match.state === "drafting" ? (
+                    {candidate || canCast ? (
                       <Button
                         small
                         variant="ghost"
-                        disabled={disabled}
-                        onPress={() => chooseChannel(item)}
+                        disabled={disabled || unavailable}
+                        onPress={() => chooseBait(item)}
                       >
                         {candidate?.locked
                           ? "View"
                           : candidate
                             ? "Finish"
-                            : "Add your own"}
+                            : unavailable ? "Used" : emailCasts ? "Create" : "Add your own"}
                       </Button>
                     ) : (
                       <Icon name="check" color={C.teal} size={17} />
@@ -774,7 +842,7 @@ export default function Draft() {
             <>
               <Button
                 icon="arrow"
-                disabled={disabled || unfinished}
+                disabled={disabled || (emailCasts ? !activeDrafts.some((item) => item.locked) : unfinished)}
                 loading={working === "start"}
                 onPress={() =>
                   void run("start", async () => {
@@ -785,7 +853,7 @@ export default function Draft() {
               >
                 Start fishing
               </Button>
-              {unfinished && (
+              {!emailCasts && unfinished && (
                 <Txt muted style={{ fontSize: 12, lineHeight: 20 }}>
                   Finish reviewing your messages before you start.
                 </Txt>
@@ -794,8 +862,7 @@ export default function Draft() {
                 muted
                 style={{ fontSize: 11, textAlign: "center", lineHeight: 18 }}
               >
-                Prepared messages keep the round moving. Only bait you create
-                can earn you a catch.
+                {emailCasts ? "Only your saved casts are sent. Empty spots stay open for later in the week." : "Prepared messages keep the round moving. Only bait you create can earn you a catch."}
               </Txt>
             </>
           ) : (

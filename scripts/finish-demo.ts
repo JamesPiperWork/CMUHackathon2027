@@ -32,6 +32,7 @@ const operator = await request<{ token: string }>(
 // currently using a different league in the product UI.
 await request("/api/matches/match-week-04/select", operator.token, {});
 const state = await request<PlayerState>("/api/state", operator.token);
+const emailCasts = state.castRules.version === "email-casts-v2";
 if (state.match.state !== "active")
   throw new Error(
     "First enroll both players, lock the drafts, and start the match in the app.",
@@ -56,8 +57,9 @@ for (const player of ["jordan", "alex"] as const) {
   );
   for (const scenario of current.incoming) {
     if (scenario.decision) continue;
-    const phishCue = hasUrgency(scenario);
+    const phishCue = emailCasts || hasUrgency(scenario);
     const showcaseMistake = player === "jordan" && !tookBait && phishCue;
+    if (emailCasts && !showcaseMistake) { console.log(`${player}: leaves one email untouched until the weekly deadline`); continue; }
     const choice = showcaseMistake ? "trust" : phishCue ? "flag" : "trust";
     if (showcaseMistake) tookBait = true;
     await request(`/api/scenarios/${scenario.id}/decision`, session.token, {
@@ -70,6 +72,7 @@ for (const player of ["jordan", "alex"] as const) {
   current = await request<PlayerState>("/api/state", session.token);
   console.log(`${player}: ${current.match.scores[player]} match points`);
 }
+if (emailCasts) await request("/api/operator/finalize", operator.token, {});
 const final = await request<PlayerState>("/api/state", operator.token);
 console.log(
   `Saved result: ${final.match.result}; Alex ${final.match.scores.alex}, Jordan ${final.match.scores.jordan}. Open Weekly Wrapped for the recap.`,

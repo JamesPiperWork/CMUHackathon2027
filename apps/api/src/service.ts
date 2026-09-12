@@ -14,6 +14,8 @@ import {
   fixtureContent,
   contentReview,
   scenarioConsistent,
+  emailContentConsistent,
+  emailTeachingContent,
   matchOutcome,
   scoreDecision,
   type ApprovedContent,
@@ -33,6 +35,7 @@ import { MatchRepository, gamePools, type Repository } from "./repository.js";
 import { leagueProfile, leagueSummaries } from "./leagues.js";
 import { getScouting, saveScouting } from "./scouting.js";
 import { dispatch, generateContent, getReadiness } from "./providers.js";
+import { emailGame, initializeEmailRules, castDraft, reserveSpear, spearUses, awardAvoidance } from "./email-casts.js";
 export class ApiError extends Error {
   constructor(
     public statusCode: number,
@@ -90,6 +93,9 @@ export class GameService {
     const db = await this.readDb();
     for (const pool of db.matchPools ?? [])
       if (pool.match.state !== "completed" && pool.match.state !== "cancelled") await this.forMatch(pool.match.id).tick();
+  }
+  async initializeRules() {
+    if (this.config.ruleSet === "email-casts-v2") await this.transact(db => initializeEmailRules(db, this.now(db)));
   }
   async scouting(userId: string, targetId: string) {
     return getScouting(await this.readDb(), userId, targetId);
@@ -279,7 +285,7 @@ export class GameService {
     return member;
   }
   private editable(db: Database) {
-    if (db.match.state !== "drafting")
+    if (db.match.state !== "drafting" && !(emailGame(db) && db.match.state === "active" && this.now(db) < db.match.deadline))
       throw new ApiError(409, "Drafting has closed");
   }
   private exclusionReason(
@@ -410,6 +416,7 @@ export class GameService {
       (a, b) => b.leaguePoints - a.leaguePoints || a.name.localeCompare(b.name),
     );
     return {
+      castRules: { version: emailGame(db) ? "email-casts-v2" : "multichannel-v1", regularLimit: emailGame(db) ? 2 : 3, spearLimit: emailGame(db) ? 1 : 0, spearUsed: spearUses(db, userId).length, spearRemaining: emailGame(db) ? Math.max(0, 1 - spearUses(db, userId).length) : 0 },
       mode: this.config.mode,
       selectedLeagueId: session.selectedLeagueId ?? db.userSelections?.[userId]?.leagueId ?? db.match.leagueId,
       leagues: leagueSummaries(db, userId),
@@ -432,6 +439,9 @@ export class GameService {
         .filter((s) => s.authorId === userId)
         .map((s) => ({
           id: s.id,
+          kind: s.kind,
+          slot: s.slot,
+          contentPolicy: s.contentPolicy,
           channel: s.channel,
           templateId: s.templateId,
           interest: s.interest,
@@ -472,7 +482,8 @@ export class GameService {
               destination: new URL(this.config.apiOrigin).host,
             },
             ...(s.encryptedToken ? { actionUrl: this.actionUrl(s) } : {}),
-            ...(decision
+            ...(emailGame(db) ? { avoidancePoints: db.scoreEvents.filter(e => e.type === "avoidance" && e.sourceId === s.id && e.userId === userId).reduce((sum, e) => sum + e.points, 0) } : {}),
+            ...(decision || db.match.state === "completed"
               ? {
                   decision,
                   reveal: {
@@ -489,7 +500,7 @@ export class GameService {
           };
         }),
       remaining:
-        6 - db.decisions.filter((d) => d.recipientId === userId).length,
+        emailGame(db) ? db.scenarios.filter(s => s.recipientId === userId && s.releasedAt !== null && !db.decisions.some(d => d.scenarioId === s.id)).length : 6 - db.decisions.filter((d) => d.recipientId === userId).length,
       draftProgress: {
         mine: db.scenarios.filter((s) => s.authorId === userId && s.locked)
           .length,
@@ -588,7 +599,7 @@ export class GameService {
         }
     });
   }
-  async generate(userId: string, input: GenerateRequest) {
+  async generate(userId: string, input: GenerateRequest, prepared = false) {
     return this.transact((db) => {
       this.editable(db);
       const author = this.member(db, userId),
@@ -610,7 +621,9 @@ export class GameService {
         input.templateId,
         fixtureContent(input.channel, input.templateId, true),
       );
-      let scenario = db.scenarios.find(
+      const cast = emailGame(db) ? castDraft(db, userId, input) : null;
+      if (!cast && (input.kind || input.slot || prepared)) throw new ApiError(400, "Cast slots are available in new email matches.");
+      let scenario = cast ? cast.draft : db.scenarios.find(
         (s) => s.authorId === userId && s.channel === input.channel,
       );
       if (!scenario)
@@ -626,10 +639,17 @@ export class GameService {
       if (scenario.generationStatus === "pending")
         throw new ApiError(409, "Generation is already queued");
       const limit = league?.settings.difficulty === "rookie" ? 5 : league?.settings.difficulty === "expert" ? 1 : 3;
-      if (scenario.generationAttempts >= limit)
+      if (!prepared && scenario.generationAttempts >= limit)
         throw new ApiError(429, `${limit === 3 ? "Three" : limit} generation attempts used for this draft`);
       scenario.interest = input.interest;
       scenario.templateId = input.templateId;
+      if (cast) { scenario.kind = cast.kind; scenario.slot = cast.slot; scenario.contentPolicy = "email-narrative-v1"; }
+      if (prepared) {
+        scenario.content = emailTeachingContent(fixtureContent("email", input.templateId, true), input.templateId);
+        scenario.source = "fixture"; scenario.model = "reviewed-fixture"; scenario.promptVersion = "email-narrative-v1";
+        scenario.generationStatus = "complete"; scenario.generationReason = "Prepared starting point for your handwritten email.";
+        return { scenarioId: scenario.id, queued: false };
+      }
       scenario.generationAttempts++;
       scenario.generationStatus = "pending";
       db.jobs.push({
@@ -660,9 +680,10 @@ export class GameService {
       if (!draft) throw new ApiError(404, "Draft not found");
       if (draft.locked || draft.generationStatus === "pending")
         throw new ApiError(409, "Draft cannot be changed now");
-      const content = contentSchema.parse({ ...draft.content, ...input });
+      let content = contentSchema.parse({ ...draft.content, ...input });
+      if (draft.contentPolicy === "email-narrative-v1") content = emailTeachingContent(content, draft.templateId);
       const review = contentReview(content);
-      if (!review.valid || !scenarioConsistent(content, draft.templateId))
+      if (!review.valid || !(draft.contentPolicy === "email-narrative-v1" ? emailContentConsistent(content, draft.templateId) : scenarioConsistent(content, draft.templateId)))
         throw new ApiError(
           400,
           review.reason ?? "Keep the approved scenario and learning cue intact",
@@ -678,10 +699,11 @@ export class GameService {
         (s) => s.id === id && s.authorId === userId,
       );
       if (!draft) throw new ApiError(404, "Draft not found");
-      if (draft.generationStatus === "pending")
-        throw new ApiError(409, "Wait for generation to finish");
+      if (draft.locked) return;
+      if (draft.generationStatus === "pending" || draft.generationStatus === "failed")
+        throw new ApiError(409, "Finish a valid draft before sending");
       const review = contentReview(draft.content);
-      if (!review.valid || !scenarioConsistent(draft.content, draft.templateId))
+      if (!review.valid || !(draft.contentPolicy === "email-narrative-v1" ? emailContentConsistent(draft.content, draft.templateId) : scenarioConsistent(draft.content, draft.templateId)))
         throw new ApiError(400, review.reason ?? "Content review failed");
       this.enforceExclusions(
         db,
@@ -689,8 +711,20 @@ export class GameService {
         draft.templateId,
         draft.content,
       );
+      if (emailGame(db)) reserveSpear(db, draft, this.now(db));
       draft.locked = true;
+      if (emailGame(db) && db.match.state === "active") this.enqueueCast(db, draft);
     });
+  }
+  private enqueueCast(db: Database, scenario: Scenario) {
+    if (db.jobs.some(job => job.type === "delivery" && job.scenarioId === scenario.id)) return;
+    const earlier = db.jobs.filter(job => job.type === "delivery" && db.scenarios.some(s => s.id === job.scenarioId && s.recipientId === scenario.recipientId));
+    const previous = earlier.length ? Math.max(...earlier.map(job => job.dueAt)) : undefined;
+    const earliest = Math.max(this.now(db) + 60000, previous === undefined ? 0 : previous + 60000);
+    const dueAt = this.config.mode === "demo" ? earliest : this.nextContactTime(db, scenario.recipientId, earliest, previous);
+    if (dueAt >= db.match.deadline || (this.config.mode === "live" && dueAt + 3600000 > db.match.deadline)) throw new ApiError(409, "No contact window remains for this cast before the week ends.");
+    scenario.order = earlier.length; scenario.tokenExpiresAt = db.match.deadline;
+    db.jobs.push({ id: randomUUID(), type: "delivery", scenarioId: scenario.id, dueAt, status: "queued", leaseExpiresAt: null, attempts: 0, idempotencyKey: `delivery:${scenario.id}` });
   }
   async activate(userId: string) {
     await this.transact((db) => {
@@ -707,6 +741,16 @@ export class GameService {
           409,
           "Both players must personally enroll before activation",
         );
+      if (emailGame(db)) {
+        const casts = db.scenarios.filter(s => s.authorId && s.locked && s.channel === "email");
+        if (!casts.length) throw new ApiError(409, "Prepare at least one email cast to start the week.");
+        for (const cast of casts) this.enforceExclusions(db, cast.recipientId, cast.templateId, cast.content);
+        db.match.startedAt = this.now(db);
+        db.match.deadline = this.now(db) + this.config.matchDurationMinutes * 60000;
+        db.match.state = "active";
+        for (const cast of casts) this.enqueueCast(db, cast);
+        return;
+      }
       if (db.scenarios.some((s) => !s.locked))
         throw new ApiError(409, "Lock all authored drafts before activation");
       for (const scenario of db.scenarios)
@@ -797,7 +841,7 @@ export class GameService {
       if (existing) return existing;
       if (
         !["active", "resolving"].includes(db.match.state) ||
-        this.now(db) > db.match.deadline
+        this.now(db) >= db.match.deadline
       )
         throw new ApiError(410, "This match has ended");
       if (
@@ -813,6 +857,7 @@ export class GameService {
         scenario.isPhishing,
         choice,
         !!scenario.authorId,
+        db.match.ruleSet,
       );
       const decision: Decision = {
         id: randomUUID(),
@@ -843,7 +888,7 @@ export class GameService {
         db.match.scores[scenario.authorId] += score.authorPoints;
       }
       if (
-        db.match.players.every(
+        !emailGame(db) && db.match.players.every(
           (player) =>
             db.decisions.filter((d) => d.recipientId === player).length === 6,
         )
@@ -876,19 +921,18 @@ export class GameService {
         s.deliveryStatus = "unanswered";
     });
   }
+  private unresolvedDeliveries(db: Database) {
+    return this.config.mode === "live" && db.scenarios.some(s =>
+      (!emailGame(db) || s.locked) && !db.decisions.some(d => d.scenarioId === s.id) &&
+      !(emailGame(db) ? ["delivered", "unanswered", "cancelled"] : ["delivered", "unanswered"]).includes(s.deliveryStatus));
+  }
   private finalizeDb(db: Database) {
     if (db.match.state === "completed") return;
     if (db.match.state !== "active" && db.match.state !== "resolving")
       throw new ApiError(409, "Activate the match first");
+    if (emailGame(db) && this.now(db) < db.match.deadline) throw new ApiError(409, "Avoidance points settle at the weekly deadline. Advance demo time to finish early.");
     db.match.state = "resolving";
-    if (
-      this.config.mode === "live" &&
-      db.scenarios.some(
-        (s) =>
-          !db.decisions.some((d) => d.scenarioId === s.id) &&
-          !["delivered", "unanswered"].includes(s.deliveryStatus),
-      )
-    ) {
+    if (this.unresolvedDeliveries(db)) {
       db.match.result = "incomplete";
       db.match.incompleteReason =
         "One or more carrier opportunities failed or remain unresolved. Operator resolution required.";
@@ -900,18 +944,23 @@ export class GameService {
         db.decisions.filter((d) => d.recipientId === id).length,
       ]),
     );
-    Object.assign(
-      db.match,
-      matchOutcome(db.match.players, db.match.scores, counts),
-    );
+    if (emailGame(db)) {
+      awardAvoidance(db);
+      const [a, b] = db.match.players;
+      db.match.result = db.match.scores[a] === db.match.scores[b] ? "draw" : "win";
+      db.match.winnerId = db.match.result === "draw" ? null : db.match.scores[a] > db.match.scores[b] ? a : b;
+    } else Object.assign(db.match, matchOutcome(db.match.players, db.match.scores, counts));
+    delete db.match.incompleteReason;
     db.match.completedAt = this.now(db);
     db.match.state = "completed";
     for (const job of db.jobs.filter(
-      (j) => j.type === "delivery" && j.status === "queued",
+      (j) => (j.status === "queued" || (j.type === "generation" && j.status === "leased")),
     )) {
       job.status = "cancelled";
-      const s = db.scenarios.find((s) => s.id === job.scenarioId)!;
-      s.deliveryStatus = "cancelled";
+      job.leaseExpiresAt = null;
+      const s = db.scenarios.find((s) => s.id === job.scenarioId);
+      if (s && job.type === "delivery") s.deliveryStatus = "cancelled";
+      if (s && job.type === "generation") { s.generationStatus = "failed"; s.generationReason = "The week ended before this draft was finished."; }
     }
     if (!db.match.standingsApplied) {
       const league = db.leagues?.find((l) => l.id === db.match.leagueId);
@@ -938,6 +987,7 @@ export class GameService {
       const sessions = db.sessions;
       Object.assign(db, createSeed(Date.now()));
       db.sessions = sessions;
+      if (this.config.ruleSet === "email-casts-v2") initializeEmailRules(db, this.now(db));
     });
   }
   async advance(minutes: number) {
@@ -1033,11 +1083,16 @@ export class GameService {
         ["active", "resolving"].includes(initial.match.state) &&
         this.now(initial) >= initial.match.deadline
       ) {
-        if (initial.match.result !== "incomplete") await this.finalize();
+        if (initial.match.result !== "incomplete" || !this.unresolvedDeliveries(initial)) await this.finalize();
         return;
       }
       for (let i = 0; i < 24; i++) {
         const snapshot = await this.readDb();
+        if (["completed", "cancelled"].includes(snapshot.match.state)) return;
+        if (["active", "resolving"].includes(snapshot.match.state) && this.now(snapshot) >= snapshot.match.deadline) {
+          if (snapshot.match.result !== "incomplete" || !this.unresolvedDeliveries(snapshot)) await this.finalize();
+          return;
+        }
         if (
           !snapshot.jobs.some(
             (j) => j.status === "queued" && j.dueAt <= this.now(snapshot),
@@ -1069,6 +1124,7 @@ export class GameService {
     let result: GenerationResult;
     try {
       result = await generateContent({
+        policy: s.contentPolicy,
         channel: s.channel,
         interest: s.interest,
         templateId: s.templateId,
@@ -1087,7 +1143,12 @@ export class GameService {
     await this.transact((db) => {
       const draft = db.scenarios.find((s) => s.id === job.scenarioId);
       const current = db.jobs.find((j) => j.id === job.id);
-      if (!draft || !current || draft.locked) return;
+      if (!draft || !current || draft.locked || current.status !== "leased" || current.attempts !== job.attempts) return;
+      if (!["drafting", "active"].includes(db.match.state) || (db.match.state === "active" && this.now(db) >= db.match.deadline)) {
+        current.status = "cancelled"; current.leaseExpiresAt = null;
+        draft.generationStatus = "failed"; draft.generationReason = "The week ended before this draft was finished.";
+        return;
+      }
       if (
         this.exclusionReason(
           db,
@@ -1142,6 +1203,7 @@ export class GameService {
       );
       const eligible =
         db.match.state === "active" &&
+        this.now(db) < db.match.deadline &&
         m.accepted &&
         m.consent.adult &&
         !m.consent.paused &&
@@ -1207,6 +1269,7 @@ export class GameService {
       !m.consent.channels[s.channel] ||
       !(fresh.leagues?.find((l) => l.id === fresh.match.leagueId)?.settings.channels[s.channel] ?? true) ||
       fresh.match.state !== "active" ||
+      this.now(fresh) >= fresh.match.deadline ||
       this.exclusionReason(fresh, s.recipientId, s.templateId, s.content)
     ) {
       await this.transact((db) => {

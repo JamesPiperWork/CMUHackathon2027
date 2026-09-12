@@ -16,7 +16,6 @@ export default function League() {
   const [showSettings, setShowSettings] = useState(false);
   const [difficulty, setDifficulty] = useState<LeagueSettings['difficulty']>('standard');
   const [family, setFamily] = useState(true);
-  const [channels, setChannels] = useState({ email: true, sms: true, voice: true });
   const [saved, setSaved] = useState(false);
   const leagueId = state?.selectedLeagueId;
   const league = state?.leagues.find((item) => item.id === leagueId);
@@ -24,14 +23,14 @@ export default function League() {
   const { data: matches } = useLeagueResource<{ matchups: LeagueMatchup[] }>(leagueId ? `/api/leagues/${leagueId}/matchups` : null);
   useEffect(() => {
     if (!league) return;
-    setDifficulty(league.settings.difficulty); setFamily(league.settings.familyFriendly); setChannels(league.settings.channels); setSaved(false);
+    setDifficulty(league.settings.difficulty); setFamily(league.settings.familyFriendly); setSaved(false);
   }, [league?.id, league?.settings.difficulty, league?.settings.familyFriendly, league?.settings.channels.email, league?.settings.channels.sms, league?.settings.channels.voice]);
   useEffect(() => { setShowSettings(invite === '1'); setQuery(''); }, [leagueId, invite]);
   if (!state) return <Welcome />;
   const commissioner = league?.commissionerId === state.me.id;
   const members = (data?.members || []).filter((member) => member.name.toLowerCase().includes(query.toLowerCase()));
   const nextReady = matches && matches.matchups.some((match) => match.week === league?.currentWeek) && matches.matchups.filter((match) => match.week === league?.currentWeek).every((match) => ['completed', 'cancelled'].includes(match.state));
-  const saveRules = async () => { await request(`/api/leagues/${leagueId}/settings`, { difficulty, familyFriendly: family, channels }); setSaved(true); };
+  const saveRules = async () => { await request(`/api/leagues/${leagueId}/settings`, { difficulty, familyFriendly: family, channels: league?.settings.channels || { email: true, sms: false, voice: false } }); setSaved(true); };
   const nextWeek = async () => { await request(`/api/leagues/${leagueId}/next-week`, {}); router.push('/matchups'); };
   return <View style={{ maxWidth: 820, width: '100%', alignSelf: 'center' }}>
     <Title sub={`${league?.memberCount || 0} players · Week ${league?.currentWeek || 1}`}>{league?.name || state.league.name}</Title>
@@ -48,8 +47,8 @@ export default function League() {
       <Pressable accessibilityRole="button" aria-expanded={showSettings} accessibilityState={{ expanded: showSettings }} onPress={() => setShowSettings(!showSettings)} style={{ paddingVertical: 19, flexDirection: 'row', alignItems: 'center', gap: 10 }}><Icon name="settings" color={C.muted} size={18} /><Txt style={{ flex: 1, fontSize: 15 }}>League settings & invitations</Txt><Txt muted>{showSettings ? '−' : '+'}</Txt></Pressable>
       {showSettings && <View style={{ gap: 20, paddingBottom: 20 }}>
         <Card style={{ gap: 12 }}><Txt style={{ fontSize: 17, fontWeight: '700' }}>Invite a friend</Txt><Txt muted style={{ fontSize: 13, lineHeight: 21 }}>They can enter this code in My leagues.</Txt><Txt style={{ fontSize: 25, fontWeight: '700', letterSpacing: 2, color: C.teal }}>{league?.inviteCode}</Txt><Button small variant="secondary" onPress={() => router.push('/leagues')}>My leagues</Button></Card>
-        <Card style={{ gap: 15 }}><Txt style={{ fontSize: 17, fontWeight: '700' }}>Rules</Txt><Label>Difficulty</Label><Row style={{ gap: 7 }}>{(['rookie', 'standard', 'expert'] as const).map((value) => <Pressable key={value} accessibilityRole="button" accessibilityState={{ selected: difficulty === value, disabled: !commissioner }} disabled={!commissioner} onPress={() => { setDifficulty(value); setSaved(false); }} style={{ flex: 1, paddingVertical: 12, borderRadius: 7, borderWidth: 1, borderColor: difficulty === value ? C.teal : C.border, alignItems: 'center', backgroundColor: difficulty === value ? C.tealDark : C.panelDeep }}><Txt style={{ fontSize: 13, color: difficulty === value ? C.teal : C.muted }}>{value === 'rookie' ? 'Easy' : value === 'standard' ? 'Standard' : 'Hard'}</Txt></Pressable>)}</Row><Txt muted style={{ fontSize: 12, lineHeight: 19 }}>Generation attempts per channel: Easy 5 · Standard 3 · Hard 1.</Txt>
-          {commissioner ? <><Toggle label="Family-friendly themes" value={family} onChange={(value) => { setFamily(value); setSaved(false); }} /><Label>Channels</Label>{(['email', 'sms', 'voice'] as const).map((channel) => <Toggle key={channel} label={channel === 'sms' ? 'Text messages' : channel === 'voice' ? 'Voice calls' : 'Email'} value={channels[channel]} onChange={(value) => { setChannels({ ...channels, [channel]: value }); setSaved(false); }} />)}<Txt muted style={{ fontSize: 12, lineHeight: 19 }}>Change channels before anyone creates bait for the week.</Txt><Button loading={busy} onPress={() => void safely(saveRules())}>{saved ? 'Saved' : 'Save rules'}</Button></> : <Txt muted style={{ fontSize: 13, lineHeight: 21 }}>The league organizer can edit these rules. {family ? 'Family-friendly themes are on.' : ''}</Txt>}
+        <Card style={{ gap: 15 }}><Txt style={{ fontSize: 17, fontWeight: '700' }}>Rules</Txt><Txt muted style={{ fontSize: 13, lineHeight: 21 }}>Two email casts each week. One optional Spear per player, per league season.</Txt><Label>Difficulty</Label><Row style={{ gap: 7 }}>{(['rookie', 'standard', 'expert'] as const).map((value) => <Pressable key={value} accessibilityRole="button" accessibilityState={{ selected: difficulty === value, disabled: !commissioner }} disabled={!commissioner} onPress={() => { setDifficulty(value); setSaved(false); }} style={{ flex: 1, paddingVertical: 12, borderRadius: 7, borderWidth: 1, borderColor: difficulty === value ? C.teal : C.border, alignItems: 'center', backgroundColor: difficulty === value ? C.tealDark : C.panelDeep }}><Txt style={{ fontSize: 13, color: difficulty === value ? C.teal : C.muted }}>{value === 'rookie' ? 'Easy' : value === 'standard' ? 'Standard' : 'Hard'}</Txt></Pressable>)}</Row><Txt muted style={{ fontSize: 12, lineHeight: 19 }}>New message versions per cast: Easy 5 · Standard 3 · Hard 1.</Txt>
+          {commissioner ? <><Toggle label="Family-friendly themes" value={family} onChange={(value) => { setFamily(value); setSaved(false); }} /><Button loading={busy} onPress={() => void safely(saveRules())}>{saved ? 'Saved' : 'Save rules'}</Button></> : <Txt muted style={{ fontSize: 13, lineHeight: 21 }}>The league organizer can edit these rules. {family ? 'Family-friendly themes are on.' : ''}</Txt>}
         </Card>
         {commissioner && <Card style={{ gap: 13 }}><Txt style={{ fontSize: 17, fontWeight: '700' }}>Start another week</Txt><Txt muted style={{ fontSize: 13, lineHeight: 21 }}>{nextReady ? 'Everyone has finished. The next week will pair players for new matches.' : 'Finish all this week’s matches before starting the next one.'}</Txt><Button disabled={!nextReady} loading={busy} variant="secondary" onPress={() => void safely(nextWeek())}>Start week {(league?.currentWeek || 1) + 1}</Button></Card>}
       </View>}

@@ -27,13 +27,26 @@ Optional configuration belongs in a root `.env` copied from `.env.example`. Keep
 ## Use the app
 
 1. **Choose a league.** The league picker opens My leagues. Create a league or join with an invite code. A new league waits for a second player before assigning a matchup.
-2. **Choose your bait.** Open Bait, choose a channel and a topic for your friend. The sender chooses interests and can add private notes; the target never selects the sender’s personalization. Notes support Markdown and are saved separately for each author, friend, and league.
-3. **Preview the message.** Generate, review or edit, then save the bait for your match. Gemini is used when configured; otherwise the app labels its prepared content. Recipient exclusions and contact preferences still apply. Easy/standard/hard rules allow five/three/one generation attempts per channel.
-4. **Play the matchup.** Starting a match fills any missing challenge slots and schedules six incoming decisions per player across enabled channels. Compare incoming claims with your match context, inspect them, and choose Trust or Flag. Reveals explain the relevant cues.
-5. **Follow the season.** The League tab shows the leaderboard, with links to weekly matches, chat, and Wrapped. Invitations and rules are tucked into League settings. The organizer can start the next week once all current matches are final. Channel rules lock once anyone creates bait.
-6. **Watch Weekly Wrapped.** Completed matchups produce a short animated story from saved attack payloads, decisions, scores, and match-period chat. Play, pause, seek, and replay individual moments. Supported desktop browsers can render and download a portrait **WebM video**; keep the tab open during rendering. This is a visual recap, not a recording of real messages or calls. Seeded episodes remain labeled synthetic.
+2. **Choose your bait.** Select Cast 1 or Cast 2, a hobby, and optional private notes about your opponent. These details belong to the sender, never the target. Generate with Gemini or use the prepared fallback, review, edit, and lock.
+3. **Use a Spear if you want.** One extra email cast per player per league season. Handwrite from a valid starting point or draft with Gemini. Locking the Spear consumes the chip atomically; it never takes one of the two regular slots. A failed send-time scheduling check rolls the reservation back.
+4. **Play the week.** Start with at least one locked email. Unfinished drafts stay private; either player can create and send remaining casts during the active week. Only authored, locked casts are scheduled. There is no ordinary mail or automatic filler. In demo mode, read the simulator; the live SMTP adapter sends to verified participant email addresses when configured.
+5. **Follow the season.** League contains standings, weekly pairings, chat, and Wrapped. The organizer advances after every current match is final. Round-robin cycles preserve saved assignments, rotate opponents, and give odd-sized leagues byes. A roster change starts a new cycle.
+6. **Watch Weekly Wrapped.** Play a short story from the saved casts, confirmed actions, untouched emails, final scores, and league chat. Desktop browsers can export a portrait WebM video. This is an animated recap, not a recording of participants.
 
-Correct decisions earn **+3**; incorrect decisions earn **−3**. Trusting a human-authored phish also gives its author **+2**. Four of six decisions qualify a player: one qualifier wins by forfeit, neither means no contest, and two qualify for the highest score with draws on equal totals. A win/draw/loss gives 3/1/0 league points, applied once.
+### Weekly email scoring
+
+| Event | Recipient | Sender |
+| --- | ---: | ---: |
+| Authenticated participant opens the bait action | −1 | +3 |
+| Each received phishing email left unclicked at the weekly deadline | +1 | 0 |
+| Flagging before the deadline | 0 immediately; +1 at week end | 0 |
+| Missing/unsent cast or cancelled delivery | 0 | 0 |
+
+Ignoring received bait counts as avoiding it. There are no scored ordinary messages and no minimum-response/forfeit rule in new matches. Higher weekly total wins; equal totals draw. League points remain win 3, draw 1, loss 0.
+
+A raw email-link GET, HEAD, scanner, or preview never scores. The external landing page preserves the link through sign-in and requires an authenticated recipient POST to open the bait action. This deliberate confirmation protects scores from email scanners; it is not raw email-link click tracking. Failed or unresolved live delivery leaves settlement incomplete rather than inventing receipt. SMTP acceptance alone does not prove delivery; an authenticated flag supplies participant receipt evidence without changing the transport status.
+
+Completed and active matches saved under the old multi-channel rules retain their original scores and views. Only unplayed drafting matches upgrade; unused text/call drafts are archived in storage. New matches use email casts. See [MERGE_NOTES.md](MERGE_NOTES.md) for what came from each branch.
 
 ## Mobile from your computer
 
@@ -62,9 +75,9 @@ For a physical device on the same trusted network, set `API_ORIGIN=http://YOUR_L
 | AI drafting | Gemini adapter with validated output and labeled prepared fallback |
 | Standings and league chat | Records, league points, rank movement, member-only persistent messages |
 | Weekly Wrapped | Event-based animated episodes and supported desktop WebM export |
-| Channels and customization | Email, text, and voice simulations; difficulty, channel rules, family-friendly mode |
+| Channels and customization | New matches use email; difficulty and family-friendly settings. Legacy SMS/voice adapters and saved matches remain available |
 | Phished reveal | Decision and teaching-cue reveal; Rick-roll and opponent-selected images are not implemented |
-| Spear Email chip | Not implemented |
+| Spear Email chip | One extra handwritten or AI-assisted email per player per league season; persisted transactional usage |
 | Crowdsourced playoffs | Drafting/voting and playoff progression are not implemented |
 | Tiebreaker minigames | Identify the Phish and deepfake swiping are not implemented; equal scores currently draw |
 | Social and masked domains | Social simulations and custom masked sending domains are not implemented; response links are application-owned |

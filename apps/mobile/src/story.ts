@@ -2,7 +2,7 @@ import type { MatchStory } from "@fp/shared";
 
 export interface StoryScene {
   id: string;
-  kind: "intro" | "attack" | "defense" | "chat" | "outro";
+  kind: "intro" | "attack" | "defense" | "avoidance" | "chat" | "outro";
   kicker: string;
   title: string;
   text: string;
@@ -24,8 +24,8 @@ export function storyScenes(story: MatchStory): StoryScene[] {
     title: "A week\non the hook.", text: scoreline,
     detail: story.leagueName, actor: story.players.map(p => p.name).join(" vs "), accent: "#80CDB7",
   }, ...moments.map(h => ({
-    id: h.id, kind: h.kind, kicker: h.kind === "chat" ? "From the group chat" : h.kind === "attack" ? "Bait that landed" : "A catch worth keeping",
-    title: h.kind === "chat" ? `${h.actorName} had\nsomething to say.` : h.kind === "attack" ? `${h.actorName}\nreeled one in.` : `${h.actorName}\nspotted the hook.`,
+    id: h.id, kind: h.kind, kicker: h.kind === "chat" ? "From the group chat" : h.kind === "attack" ? "Bait that landed" : h.kind === "avoidance" ? "Bait left untouched" : "A catch worth keeping",
+    title: h.kind === "chat" ? `${h.actorName} had\nsomething to say.` : h.kind === "attack" ? `${h.actorName}\nreeled one in.` : h.kind === "avoidance" ? `${h.actorName}\nleft it on the line.` : `${h.actorName}\nspotted the hook.`,
     text: h.text, detail: h.detail || (h.points ? `${h.points > 0 ? "+" : ""}${h.points} points` : "A moment from this matchup"),
     actor: h.actorName, target: h.targetName,
     accent: h.kind === "attack" ? "#F3AF8B" : h.kind === "chat" ? "#A4BDD2" : "#80CDB7",

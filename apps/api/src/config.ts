@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 dotenv({ path: resolve(repositoryRoot, ".env"), quiet: true });
 export interface Config {
+  ruleSet?: "email-casts-v2";
   mode: "demo" | "live";
   port: number;
   apiOrigin: string;
@@ -38,6 +39,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (mode === "live" && (!env.AUTH0_DOMAIN || !env.AUTH0_AUDIENCE))
     throw new Error("Live mode requires Auth0 domain and audience");
   return {
+    ruleSet: "email-casts-v2",
     mode,
     port,
     apiOrigin,

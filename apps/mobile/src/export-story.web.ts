@@ -49,8 +49,8 @@ export async function exportStory(scenes: StoryScene[], name: string, progress: 
     ctx.fillStyle = scene.accent; ctx.font = "800 18px system-ui"; ctx.fillText(scene.kicker, 52, 187);
     ctx.fillStyle = C.text; ctx.font = "800 57px system-ui"; wrap(scene.title, 50, 277, 620, 66, 4);
     ctx.fillStyle = C.panel; ctx.beginPath(); ctx.roundRect(40, 464, 640, 460, 24); ctx.fill();
-    const sender = scene.kind === "defense" ? scene.target || scene.actor : scene.actor;
-    const recipient = scene.kind === "defense" ? scene.actor : scene.target;
+    const sender = (scene.kind === "defense" || scene.kind === "avoidance") ? scene.target || scene.actor : scene.actor;
+    const recipient = (scene.kind === "defense" || scene.kind === "avoidance") ? scene.actor : scene.target;
     ctx.fillStyle = scene.accent; ctx.font = "700 19px system-ui"; wrap(`${sender}${recipient ? ` → ${recipient}` : ""}`, 70, 509, 580, 26, 2);
     ctx.fillStyle = C.text; ctx.font = scene.kind === "intro" || scene.kind === "outro" ? "800 37px system-ui" : "500 28px system-ui";
     wrap(scene.text, 70, 594, 575, 40, 7);

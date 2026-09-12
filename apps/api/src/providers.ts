@@ -27,6 +27,7 @@ import {
   type DecisionChoice,
 } from "@fp/shared";
 import { personalizeFixture } from "./scouting.js";
+import { generateEmailLure } from "./email-lure.js";
 
 type Env = NodeJS.ProcessEnv;
 const digest = (value: string) =>
@@ -309,6 +310,8 @@ export async function generateContent(
   input: GenerationInput,
   options: { env?: Env; fetcher?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<GenerationResult> {
+  if (input.policy === "email-narrative-v1")
+    return generateEmailLure(input, options);
   const env = options.env ?? process.env,
     model = env.GEMINI_MODEL || "gemini-2.5-flash";
   const fixture = personalizeFixture(

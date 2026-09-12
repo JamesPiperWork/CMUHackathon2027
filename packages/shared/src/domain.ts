@@ -77,6 +77,9 @@ export interface Member {
   auth0Sub?: string;
 }
 export interface Scenario {
+  kind?: "regular" | "spear";
+  slot?: 1 | 2;
+  contentPolicy?: "email-narrative-v1";
   id: string;
   matchId: string;
   recipientId: string;
@@ -115,7 +118,7 @@ export interface ScoreEvent {
   id: string;
   sourceId: string;
   userId: string;
-  type: "defense" | "author";
+  type: "defense" | "author" | "avoidance";
   points: number;
 }
 export interface Job {
@@ -142,6 +145,8 @@ export interface DeliveryAttempt {
   callbackIds: string[];
 }
 export interface Match {
+  ruleSet?: "email-casts-v2";
+  season?: number;
   id: string;
   week?: number;
   synthetic?: boolean;
@@ -192,6 +197,7 @@ export interface LeagueRecord {
   settings: LeagueSettings;
   createdAt: number;
   standings?: Record<string, { leaguePoints: number; wins: number; losses: number; draws: number }>;
+  scheduleCycle?: import("./schedule").ScheduleCycle;
 }
 export interface LeagueSummary extends LeagueRecord {
   memberCount: number;
@@ -230,7 +236,7 @@ export interface MatchStory {
   synthetic: boolean;
   highlights: {
     id: string;
-    kind: "attack" | "defense" | "chat";
+    kind: "attack" | "defense" | "avoidance" | "chat";
     actorName: string;
     targetName?: string;
     text: string;
@@ -249,6 +255,8 @@ export interface GamePool {
   attempts: DeliveryAttempt[];
 }
 export interface Database {
+  archivedDrafts?: Scenario[];
+  spearUses?: { leagueId: string; season: number; userId: string; scenarioId: string; usedAt: number }[];
   version: 1;
   revision: number;
   clockOffset: number;
@@ -271,6 +279,7 @@ export interface Database {
   userSelections?: Record<string, { leagueId: string; matchId?: string }>;
 }
 export interface ScenarioPublic {
+  avoidancePoints?: number;
   id: string;
   channel: Channel;
   content: Pick<
@@ -293,6 +302,9 @@ export interface ScenarioPublic {
   };
 }
 export interface DraftPublic {
+  kind?: "regular" | "spear";
+  slot?: 1 | 2;
+  contentPolicy?: "email-narrative-v1";
   id: string;
   channel: Channel;
   templateId: string;
@@ -317,6 +329,7 @@ export interface Readiness {
   conditions: ReadinessCondition[];
 }
 export interface Recap {
+  avoidedBait?: number;
   detectedPhish: number;
   correctTrust: number;
   falseAlarms: number;
@@ -328,6 +341,7 @@ export interface Recap {
   tip: string;
 }
 export interface PlayerState {
+  castRules: { version: "email-casts-v2" | "multichannel-v1"; regularLimit: number; spearLimit: number; spearUsed: number; spearRemaining: number };
   mode: "demo" | "live";
   revision: number;
   now: number;
@@ -362,6 +376,8 @@ export interface PlayerState {
   leagues: LeagueSummary[];
 }
 export interface GenerateRequest {
+  kind?: "regular" | "spear";
+  slot?: 1 | 2;
   recipientMemberId: string;
   channel: Channel;
   interest: Interest;
@@ -369,6 +385,8 @@ export interface GenerateRequest {
 }
 export const generateSchema = z
   .object({
+    kind: z.enum(["regular", "spear"]).optional(),
+    slot: z.union([z.literal(1), z.literal(2)]).optional(),
     recipientMemberId: z.string(),
     channel: z.enum(channels),
     interest: z.enum(interests),
@@ -382,8 +400,10 @@ export function scoreDecision(
   isPhishing: boolean,
   choice: DecisionChoice,
   humanAuthor: boolean,
+  ruleSet?: "email-casts-v2",
 ) {
   const correct = isPhishing ? choice === "flag" : choice === "trust";
+  if (ruleSet === "email-casts-v2") return { correct, defenderPoints: choice === "trust" ? -1 : 0, authorPoints: choice === "trust" && humanAuthor ? 3 : 0 };
   return {
     correct,
     defenderPoints: correct ? 3 : -3,
@@ -423,6 +443,7 @@ export function computeRecap(db: Database, userId: string): Recap {
     (e) => e.userId === userId && e.type === "author" && e.points > 0,
   ).length;
   return {
+    ...(db.match.ruleSet === "email-casts-v2" ? { avoidedBait: db.scoreEvents.filter(e => e.userId === userId && e.type === "avoidance").length } : {}),
     detectedPhish,
     correctTrust,
     falseAlarms,
@@ -463,6 +484,7 @@ export interface DeliveryAdapter {
   send(envelope: DeliveryEnvelope): Promise<DeliveryResult>;
 }
 export interface GenerationInput {
+  policy?: "email-narrative-v1";
   channel: Channel;
   interest: Interest;
   templateId: string;

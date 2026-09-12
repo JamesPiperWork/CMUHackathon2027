@@ -33,6 +33,7 @@ export async function createServer(
     startJobs?: boolean;
   } = {},
 ) {
+  await service.initializeRules();
   const app = Fastify({
     logger: false,
     bodyLimit: 16000,
@@ -249,6 +250,10 @@ export async function createServer(
     reply.code(202);
     return result;
   });
+  app.post("/api/drafts/prepare", async (request) => {
+    const session = await getSession(request, true);
+    return (await service.forSession(session, true)).generate(session.userId, generateSchema.parse(request.body), true);
+  });
   app.patch<{
     Params: {
       id: string;
@@ -334,7 +339,11 @@ export async function createServer(
   });
   app.post("/api/operator/finalize", async (request) => {
     const session = await operator(request);
-    await (await service.forSession(session, true)).finalize();
+    const matchService = await service.forSession(session, true);
+    const db = await matchService.readDb();
+    if (db.match.ruleSet === "email-casts-v2" && db.match.state === "active" && service.now(db) < db.match.deadline)
+      await service.advance(Math.ceil((db.match.deadline - service.now(db)) / 60000));
+    await matchService.finalize();
     return { ok: true };
   });
   app.get<{

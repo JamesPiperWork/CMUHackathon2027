@@ -28,6 +28,9 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
   const voice = scenario.channel === "voice";
   const reveal = scenario.reveal;
   const decision = scenario.decision;
+  const emailCasts = state?.castRules.version === "email-casts-v2";
+  const finished = state?.match.state === "completed";
+  const avoided = emailCasts && decision?.choice === "flag" && reveal?.isPhishing;
   const [confirm, setConfirm] = useState<"trust" | "flag" | null>(null);
   return (
     <Card style={{ padding: 0, overflow: "hidden" }}>
@@ -217,7 +220,7 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
           icon="eye"
           onPress={() => setInspect(!inspect)}
         >
-          {inspect ? "Hide sender and context" : "Check sender and context"}
+          {emailCasts ? inspect ? "Hide sender details" : "Check sender details" : inspect ? "Hide sender and context" : "Check sender and context"}
         </Button>
         {inspect && (
           <View
@@ -244,12 +247,12 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
             <Txt muted style={{ fontSize: 10, lineHeight: 17 }}>
               Checking these details does not submit an answer.
             </Txt>
-            <ActivityCard />
+            {!emailCasts && <ActivityCard />}
           </View>
         )}
-        {!decision && (!voice || answered) && (
+        {!decision && !finished && (!voice || answered) && (
           <View style={{ marginTop: 22, gap: 12 }}>
-            {!confirm && <Txt style={{ fontWeight: "700", fontSize: 16 }}>Is this message bait?</Txt>}
+            {!confirm && <Txt style={{ fontWeight: "700", fontSize: 16 }}>{emailCasts ? "What would you do?" : "Is this message bait?"}</Txt>}
             {!confirm && (voice ? (
               <Row style={{ flexWrap: "wrap" }}>
                 <Button
@@ -258,7 +261,7 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
                   loading={busy}
                   onPress={() => setConfirm("trust")}
                 >
-                  Trust
+                  {emailCasts ? "Open link" : "Trust"}
                 </Button>
                 <Button
                   style={{ flex: 1 }}
@@ -267,7 +270,7 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
                   loading={busy}
                   onPress={() => setConfirm("flag")}
                 >
-                  Flag
+                  {emailCasts ? "Flag bait" : "Flag"}
                 </Button>
                 <Button
                   small
@@ -287,7 +290,7 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
                   loading={busy}
                   onPress={() => setConfirm("trust")}
                 >
-                  Trust
+                  {emailCasts ? "Open link" : "Trust"}
                 </Button>
                 <Button
                   style={{ flex: 1 }}
@@ -296,7 +299,7 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
                   loading={busy}
                   onPress={() => setConfirm("flag")}
                 >
-                  Flag
+                  {emailCasts ? "Flag bait" : "Flag"}
                 </Button>
               </Row>
             ))}
@@ -311,7 +314,7 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
                 }}
               >
                 <Txt style={{ fontSize: 13, lineHeight: 21 }}>
-                  {confirm === "trust" ? "Trust this message?" : "Flag this as phishing?"} You can’t change your answer after submitting.
+                  {emailCasts ? confirm === "trust" ? "Opening the link counts as taking this bait. Your score drops by 1 and the sender earns 3." : "Mark this email as bait. Avoided bait earns 1 point when the week ends." : confirm === "trust" ? "Trust this message?" : "Flag this as phishing?"} You can’t change your answer after submitting.
                 </Txt>
                 <Row>
                   <Button
@@ -362,9 +365,8 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
                     color: decision.correct ? C.teal : C.coral,
                   }}
                 >
-                  {decision.defenderPoints > 0 ? "+" : ""}
-                  {decision.defenderPoints}
-                  <Txt style={{ fontSize: 11 }}> pts</Txt>
+                  {avoided ? finished ? `+${scenario.avoidancePoints || 0}` : "+1" : `${decision.defenderPoints > 0 ? "+" : ""}${decision.defenderPoints}`}
+                  <Txt style={{ fontSize: 11 }}>{avoided && !finished ? " at week end" : " pts"}</Txt>
                 </Txt>
               </Row>
               <Txt
@@ -411,11 +413,12 @@ function Message({ scenario }: { scenario: ScenarioPublic }) {
                 </Txt>
               )}
               <Txt muted style={{ fontSize: 10, lineHeight: 18 }}>
-                Answer saved.
+                {avoided && !finished ? "Bait avoided. Your point is awarded when the week ends." : "Answer saved."}
               </Txt>
             </View>
           </RevealMotion>
         )}
+        {emailCasts && finished && !decision && <View style={{ gap: 10, marginTop: 18 }}><Txt style={{ color: C.teal, fontWeight: "700" }}>Bait avoided · +{scenario.avoidancePoints || 0} point{scenario.avoidancePoints === 1 ? "" : "s"}</Txt><Txt muted style={{ fontSize: 13, lineHeight: 21 }}>You left this email alone until the week ended.</Txt>{reveal && <Txt muted style={{ fontSize: 13, lineHeight: 21 }}>{reveal.explanation}</Txt>}</View>}
       </View>
     </Card>
   );
@@ -432,21 +435,22 @@ export default function Activity() {
   }, [selected, state?.incoming]);
   if (!state) return <Welcome />;
   const item = state.incoming.find((s) => s.id === selected) || state.incoming.find((s) => !s.decision) || state.incoming[0];
-  const unread = state.incoming.filter((s) => !s.decision).length;
+  const unread = state.match.state === "completed" ? 0 : state.incoming.filter((s) => !s.decision).length;
   const waitingForOpponent = state.selectedLeagueId !== state.match.leagueId;
+  const emailCasts = state.castRules.version === "email-casts-v2";
   return (
     <View style={{ maxWidth: 780, width: "100%", alignSelf: "center", gap: 16 }}>
       <Title sub="Read the message. Check the details. Decide whether it’s bait.">Your inbox</Title>
       {state.incoming.length > 0 && !waitingForOpponent && <View style={{ gap: 10 }}>
         <Row style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
-          <Txt muted style={{ fontSize: 13 }}>{unread ? `${unread} awaiting your answer` : "All messages answered"}</Txt>
+          <Txt muted style={{ fontSize: 13 }}>{state.match.state === "completed" ? "This week is finished" : unread ? `${unread} awaiting your answer` : "All messages answered"}</Txt>
           <Button small variant="ghost" onPress={() => setShowMessages(!showMessages)}>{showMessages ? "Hide messages" : `All messages · ${state.incoming.length}`}</Button>
         </Row>
         {showMessages && <View style={{ gap: 6 }}>{state.incoming.map((scenario, i) => (
           <Pressable key={scenario.id} accessibilityRole="button" accessibilityLabel={`Open ${scenario.content.senderDisplayName} message ${i + 1}`} accessibilityState={{ selected: scenario.id === item?.id }} onPress={() => { setSelected(scenario.id); setShowMessages(false); }} style={{ backgroundColor: item?.id === scenario.id ? C.tealDark : C.panel, borderWidth: 1, borderColor: C.border, padding: 14, borderRadius: 12, flexDirection: "row", alignItems: "center", gap: 12 }}>
             <Icon name={scenario.channel === "email" ? "mail" : scenario.channel} color={C.teal} size={18} />
-            <View style={{ flex: 1, gap: 4 }}><Txt style={{ fontSize: 13, fontWeight: "700" }}>{scenario.content.senderDisplayName}</Txt><Txt muted style={{ fontSize: 11 }}>{scenario.decision ? "Answered" : scenario.deliveryStatus === "unanswered" ? "Call ignored" : "Needs an answer"}</Txt></View>
-            {scenario.decision ? <Icon name="check" size={16} color={C.muted} /> : <View style={{ width: 7, height: 7, borderRadius: 7, backgroundColor: C.teal }} />}
+            <View style={{ flex: 1, gap: 4 }}><Txt style={{ fontSize: 13, fontWeight: "700" }}>{scenario.content.senderDisplayName}</Txt><Txt muted style={{ fontSize: 11 }}>{scenario.decision ? "Answered" : state.match.state === "completed" ? "Stayed unopened" : scenario.deliveryStatus === "unanswered" ? "Call ignored" : "Needs an answer"}</Txt></View>
+            {scenario.decision || state.match.state === "completed" ? <Icon name="check" size={16} color={C.muted} /> : <View style={{ width: 7, height: 7, borderRadius: 7, backgroundColor: C.teal }} />}
           </Pressable>
         ))}</View>}
       </View>}
@@ -460,12 +464,12 @@ export default function Activity() {
       <View testID="activity-context" style={{ gap: 10 }}>
         <Button small variant="ghost" onPress={() => setShowSent(!showSent)}>{showSent ? "Hide sent bait" : `Your sent bait${waitingForOpponent ? "" : ` · ${state.drafts.length}`}`}</Button>
         {showSent && <View style={{ gap: 10 }}>
-          {waitingForOpponent || !state.drafts.length ? <Txt muted style={{ fontSize: 13 }}>You haven’t prepared any bait for this match.</Txt> : state.drafts.map((draft) => <Card key={draft.id} style={{ padding: 16, gap: 8 }}><Row><Icon name={draft.channel === "email" ? "mail" : draft.channel} color={C.teal} /><View style={{ flex: 1, gap: 5 }}><Txt style={{ fontSize: 14, fontWeight: "700" }}>{draft.content.subject}</Txt><Txt muted style={{ fontSize: 12 }}>{draft.channel === "sms" ? "Text" : draft.channel === "voice" ? "Call" : "Email"} to {state.opponent.name} · {draft.locked ? draft.deliveryStatus : "Draft"}</Txt></View></Row></Card>)}
+          {waitingForOpponent || !state.drafts.length ? <Txt muted style={{ fontSize: 13 }}>You haven’t prepared any bait for this match.</Txt> : state.drafts.map((draft) => <Card key={draft.id} style={{ padding: 16, gap: 8 }}><Row><Icon name={draft.channel === "email" ? "mail" : draft.channel} color={C.teal} /><View style={{ flex: 1, gap: 5 }}><Txt style={{ fontSize: 14, fontWeight: "700" }}>{draft.content.subject}</Txt><Txt muted style={{ fontSize: 12 }}>{emailCasts ? draft.kind === "spear" ? "Spear" : `Cast ${draft.slot || 1}` : draft.channel === "sms" ? "Text" : draft.channel === "voice" ? "Call" : "Email"} to {state.opponent.name} · {draft.locked ? draft.deliveryStatus : "Draft"}</Txt></View></Row></Card>)}
           {!waitingForOpponent && <Button small variant="secondary" onPress={() => router.push("/draft")}>Open your bait</Button>}
-          <Txt muted style={{ fontSize: 11 }}>A delivery status is not an answer. Scores change when a player responds.</Txt>
+          <Txt muted style={{ fontSize: 11 }}>{emailCasts ? "Catches score when the link is opened. Avoided bait scores when the week ends." : "A delivery status is not an answer. Scores change when a player responds."}</Txt>
         </View>}
         <Button small variant="ghost" onPress={() => setShowScoring(!showScoring)}>{showScoring ? "Hide scoring" : "How scoring works"}</Button>
-        {showScoring && <Card style={{ gap: 10 }}><Txt style={{ fontSize: 13, lineHeight: 23 }}>Correct answer: +3{`\n`}Incorrect answer: −3{`\n`}An opponent takes your bait: +2</Txt><Txt muted style={{ fontSize: 12, lineHeight: 20 }}>Reading, checking details, or ignoring a call earns no points. Answer at least four of six messages to qualify for the match result. There is no speed bonus.</Txt></Card>}
+        {showScoring && <Card style={{ gap: 10 }}><Txt style={{ fontSize: 13, lineHeight: 23 }}>{emailCasts ? "Someone takes your bait: +3\nYou take bait: −1\nEach bait email you avoid: +1 at week end" : "Correct answer: +3\nIncorrect answer: −3\nAn opponent takes your bait: +2"}</Txt><Txt muted style={{ fontSize: 12, lineHeight: 20 }}>{emailCasts ? "Flagged and ignored bait both count as avoided. Reading a message or checking its sender does not take the bait. Only opening its link does." : "Reading, checking details, or ignoring a call earns no points. Answer at least four of six messages to qualify for the match result. There is no speed bonus."}</Txt></Card>}
       </View>
     </View>
   );

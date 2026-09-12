@@ -205,6 +205,8 @@ export function createSeed(now = Date.now()): Database {
   const ranked = [...profiles].sort((a, b) => b.leaguePoints - a.leaguePoints);
   const db: Database = {
     version: 1,
+    spearUses: [],
+    archivedDrafts: [],
     revision: 0,
     clockOffset: 0,
     profiles,

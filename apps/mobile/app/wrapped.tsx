@@ -91,8 +91,8 @@ export default function Wrapped() {
   if (loading) return <Empty title="Gathering your week…" icon="clock">Collecting the messages and moments from your match.</Empty>;
   if (!story || !scene) return <View style={{ gap: 18 }}><Title kicker="Weekly Wrapped">A week worth catching.</Title><Empty title={error || "Your recap is still waiting."} icon="sparkle">Finish a match to watch the messages, catches, and conversations from your week.</Empty><Button onPress={() => router.push("/matchups")}>View matchups</Button></View>;
   const time = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
-  const messageSender = scene.kind === "defense" ? scene.target || scene.actor : scene.actor;
-  const messageRecipient = scene.kind === "defense" ? scene.actor : scene.target;
+  const messageSender = (scene.kind === "defense" || scene.kind === "avoidance") ? scene.target || scene.actor : scene.actor;
+  const messageRecipient = (scene.kind === "defense" || scene.kind === "avoidance") ? scene.actor : scene.target;
   const isSummary = scene.kind === "intro" || scene.kind === "outro";
   const messageExcerpt = scene.text.length > 100 ? `${scene.text.slice(0, 100).replace(/\s+\S*$/, "")}…` : scene.text;
   const showExcerpt = shortViewport && !isSummary && !showFullMessage;
@@ -115,7 +115,7 @@ export default function Wrapped() {
               <Label color={scene.accent}>{scene.kicker}</Label>
               <Txt style={{ fontSize: shortViewport ? 24 : compact ? 28 : 36, fontWeight: "900", lineHeight: shortViewport ? 27 : compact ? 32 : 39, letterSpacing: -1.5 }}>{scene.title}</Txt>
               <Card style={{ backgroundColor: C.panel, borderColor: `${scene.accent}25`, padding: shortViewport ? 12 : compact ? 16 : 20, gap: shortViewport ? 8 : compact ? 12 : 18 }}>
-                {!(shortViewport && isSummary) && <Row><Avatar name={messageSender} size={shortViewport ? 24 : 34} color={scene.accent} /><View style={{ flex: 1, gap: 4 }}><Txt style={{ fontSize: 12, fontWeight: "800", color: scene.accent }}>{messageSender}</Txt>{messageRecipient && <Txt muted style={{ fontSize: 11 }}>to {messageRecipient}</Txt>}</View><Icon name={scene.kind === "chat" ? "sms" : scene.kind === "defense" ? "shield" : "mail"} size={19} color={scene.accent} /></Row>}
+                {!(shortViewport && isSummary) && <Row><Avatar name={messageSender} size={shortViewport ? 24 : 34} color={scene.accent} /><View style={{ flex: 1, gap: 4 }}><Txt style={{ fontSize: 12, fontWeight: "800", color: scene.accent }}>{messageSender}</Txt>{messageRecipient && <Txt muted style={{ fontSize: 11 }}>to {messageRecipient}</Txt>}</View><Icon name={scene.kind === "chat" ? "sms" : (scene.kind === "defense" || scene.kind === "avoidance") ? "shield" : "mail"} size={19} color={scene.accent} /></Row>}
                 <Txt style={{ fontSize: scene.kind === "intro" || scene.kind === "outro" ? (compact ? 20 : 23) : (compact ? 14 : 16), fontWeight: scene.kind === "intro" || scene.kind === "outro" ? "800" : "500", lineHeight: shortViewport ? 20 : compact ? 22 : 26 }}>{showExcerpt ? messageExcerpt : scene.text}</Txt>
               </Card>
               {(!shortViewport || isSummary || showFullMessage) && <Txt style={{ color: C.muted, fontSize: shortViewport ? 11 : 13, lineHeight: shortViewport ? 16 : 21 }}>{scene.detail}</Txt>}

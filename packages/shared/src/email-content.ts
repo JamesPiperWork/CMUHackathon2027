@@ -1,0 +1,59 @@
+import type { ApprovedContent } from "./domain";
+
+// Narrative email policy adapted from main's single-story lures (204c824).
+// The sender and teaching facts belong to the server, never to generated JSON.
+const facts: Record<string, { sender: string; explanation: string }> = {
+  "ticket-drop": {
+    sender: "Juniper Sessions",
+    explanation:
+      "Your saved JS-118 booking is already confirmed, with no upgrade requested. This message introduces an unexpected backstage upgrade. Verify through a known route before approving a change.",
+  },
+  "parcel-update": {
+    sender: "Mooncrate",
+    explanation:
+      "Your saved MC-204 order is already scheduled for Saturday, with no extra fee. This message introduces an unexpected hold on that delivery. Check the original order through a known route before approving a change.",
+  },
+  "game-night": {
+    sender: "Trail Club",
+    explanation:
+      "You requested a Saturday walk reminder and your place was already confirmed. This message introduces an unexpected move to a guest list. Check with the club through a known route before approving a change.",
+  },
+};
+
+/** Destination text is never accepted from a model or a handwritten email. */
+export function emailHasExternalDestination(text: string): boolean {
+  return /(?:\b[a-z][a-z\d+.-]*:\/\/|\b(?:mailto|tel|javascript|data):|www\.|[\w.+-]+@[\w.-]+\.[a-z]{2,}|\b(?:[a-z\d](?:[a-z\d-]*[a-z\d])?\.)+[a-z]{2,}\b|\b\d{1,3}(?:\.\d{1,3}){3}\b|(?:\+?\d[\d ()-]{7,}\d)|<[^>]+>|\[[^\]]*\]\(|\{\{[^}]*\}\})/i.test(text);
+}
+
+/** Natural wording can omit the old artificial deadline, but not the false change. */
+export function emailContentConsistent(
+  content: ApprovedContent,
+  templateId: string,
+): boolean {
+  const fact = facts[templateId];
+  if (!fact || content.senderDisplayName !== fact.sender) return false;
+  if (emailHasExternalDestination(`${content.subject}\n${content.bodyText}`)) return false;
+  const body = content.bodyText;
+  // Reject wording that negates the very change the server's explanation teaches.
+  if (/\b(?:not|never|no|without|isn't|hasn't)\b[^.!?\n]{0,45}\b(?:upgrade|hold|guest list|moved)\b/i.test(body)) return false;
+  if (templateId === "ticket-drop")
+    return /\bJS-118\b/i.test(body) && /\b(?:selected|chosen|reserved|offered|assigned)\b[^.!?\n]{0,70}\b(?:backstage\s+)?upgrade\b|\bbackstage upgrade\b[^.!?\n]{0,45}\b(?:available|waiting|reserved|ready)\b/i.test(body);
+  if (templateId === "parcel-update")
+    return /\bMC-204\b/i.test(body) && /\b(?:is|was|remains|been|placed)\b[^.!?\n]{0,45}\bon hold\b/i.test(body);
+  return /\bSaturday\b/i.test(body) && /\b(?:moved|transferred|placed|added)\b[^.!?\n]{0,45}\bguest list\b/i.test(body);
+}
+
+export function emailTeachingContent(
+  content: ApprovedContent,
+  templateId: string,
+): ApprovedContent {
+  const fact = facts[templateId];
+  if (!fact) throw new Error("Unsupported email story");
+  const cueAnnotations = [
+    "An unexpected change conflicts with your confirmed activity.",
+    "A familiar sender name does not verify a new request.",
+  ];
+  if (/\b(?:ten minutes|ten-minute|10 minutes|immediately|act now|last chance)\b/i.test(`${content.subject}\n${content.bodyText}`))
+    cueAnnotations.push("Urgency encourages a response before checking the original plan.");
+  return { ...content, senderDisplayName: fact.sender, cueAnnotations, explanation: fact.explanation };
+}

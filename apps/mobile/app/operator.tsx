@@ -91,7 +91,7 @@ export default function Operator() {
         </Row>
         <Txt muted style={{ fontSize: 11, lineHeight: 18, marginTop: 12 }}>
           Release explicitly uses simulation timing. Player consent and pause
-          still apply. Start the match from Draft first.
+          still apply. Start the match from Bait first.
         </Txt>
         <Divider />
         <Row style={{ alignItems: "flex-end", flexWrap: "wrap" }}>
@@ -120,7 +120,7 @@ export default function Operator() {
             loading={busy}
             onPress={() => void safely(request("/api/operator/finalize", {}))}
           >
-            Finalize current match
+            {state.castRules.version === "email-casts-v2" ? "Finish demo week" : "Finalize current match"}
           </Button>
         </Row>
         <Divider />
