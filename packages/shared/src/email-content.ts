@@ -35,6 +35,9 @@ export function emailSenderNameValid(name: string): boolean {
 
 export function fictionalEmailSender(authorPrompt: string): string {
   const names: [RegExp, string][] = [
+    [/\b(?:wings?|sports bar|restaurant)\b/i, "Mile High Wing House"],
+    [/\b(?:coffee|espresso|roast\w*)\b/i, "Ember Roasters"],
+    [/\b(?:photography|film|camera)\b/i, "Silver Grain Photo Lab"],
     [/\bchess\b/i, "Cedar Chess Circle"],
     [/\b(?:pottery|ceramics?|clay)\b/i, "Willow Clay Studio"],
     [/\b(?:baking|sourdough|bread|cooking)\b/i, "Hearthside Baking Club"],

@@ -6,7 +6,7 @@ import { Avatar, Button, C, Card, Field, Hook, Icon, Row, Title, Txt } from "../
 import { ConsentForm } from "../src/consent";
 
 export function Welcome() {
-  const { createAccount, signIn, signInLive, startEmailSignIn, verifyEmailSignIn, clearError, busy, mode, emailDelivery } = useSession();
+  const { createAccount, signIn, quickSignIn, signInLive, startEmailSignIn, verifyEmailSignIn, clearError, busy, mode, emailDelivery } = useSession();
   const [creating, setCreating] = useState(true);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -30,6 +30,11 @@ export function Welcome() {
   }));
   return <View style={{ width: "100%", maxWidth: 480, alignSelf: "center", gap: 24, paddingTop: 22 }}>
     <View style={{ gap: 13 }}><Hook size={58} /><Txt style={{ fontSize: 35, lineHeight: 41, fontWeight: "700", letterSpacing: -1 }}>A little bait.{"\n"}A friendly rivalry.</Txt><Txt muted style={{ fontSize: 16, lineHeight: 25 }}>Send playful phishing challenges to friends. Spot theirs. See who gets hooked.</Txt></View>
+    {mode === "demo" && emailDelivery === "mailpit" && <Card style={{ gap: 14, padding: 22 }}>
+      <Txt style={{ fontSize: 22, fontWeight: "700" }}>Jump into the demo</Txt>
+      <Txt muted>The Fishing Crew is ready. Pick a player and start drafting.</Txt>
+      <Row style={{ gap: 12 }}>{(["alex", "jordan"] as const).map(player => <Button key={player} style={{ flex: 1 }} disabled={busy} onPress={() => void safely(quickSignIn(player).then(() => router.replace("/")))}>Play as {player === "alex" ? "Alex" : "Jordan"}</Button>)}</Row>
+    </Card>}
     <Card style={{ gap: 18, padding: 22 }}>
       <View style={{ gap: 6 }}><Txt style={{ fontSize: 22, fontWeight: "700" }}>{requestId ? "Check your email" : creating ? "Create your account" : "Welcome back"}</Txt><Txt muted style={{ fontSize: 14, lineHeight: 22 }}>{creating ? "Set up your player, then find your fishing crew." : "Sign in to pick up where you left off."}</Txt></View>
       {["smtp-demo", "mailpit"].includes(emailDelivery) ? <View style={{ gap: 15 }}>

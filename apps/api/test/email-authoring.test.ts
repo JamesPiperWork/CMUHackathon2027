@@ -13,12 +13,60 @@ const input = (authorPrompt: string): GenerationInput => ({
 const chessBrief = "They enjoy chess. Invite them to a friendly puzzle evening with casual matches.";
 const chessEmail = {
   subject: "A friendly chess puzzle evening",
-  body: `Hi there,\n\nOur chess circle is putting together a relaxed puzzle evening. Try a few opening puzzles, then compare ideas over a casual match. If that sounds like a good evening, confirm your interest using ${EMAIL_TRACKING_PLACEHOLDER}.\n\nThanks,\nCedar Chess Circle`,
+  body: `Hi there,\n\nOur chess circle is putting together a relaxed puzzle evening. Try a few opening puzzles, then compare ideas over a casual match. See the puzzle lineup using ${EMAIL_TRACKING_PLACEHOLDER}.\n\nThanks,\nCedar Chess Circle`,
 };
 const unrelatedEmail = {
   subject: "Join a community seed swap",
   body: `Hi there,\n\nOur garden club is planning a relaxed seed swap. Bring an idea for a small flower bed and compare growing tips with fellow gardeners. Confirm your interest using ${EMAIL_TRACKING_PLACEHOLDER}.\n\nThanks,\nCedar Circle`,
 };
+const wingsBrief = "Jordan loves buffalo wings and the Denver Broncos. A local wing restaurant has a promotional deal for Broncos vs Chargers on TNF.";
+
+test("wings and Broncos produce the authored restaurant promotion even without Gemini", async () => {
+  const result = await generateContent(input(wingsBrief), { env: {} });
+  assert.equal(result.content.senderDisplayName, "Mile High Wing House");
+  assert.match(result.content.subject, /Broncos–Chargers TNF/);
+  assert.match(result.content.bodyText, /12 buffalo wings.*fries for \$12/);
+  assert.match(result.content.bodyText, /kickoff through the final whistle/);
+  assert.deepEqual(emailAuthoringQuality(result.content, buildEmailBrief(wingsBrief)), []);
+  assert.ok(emailPromptContentValid(result.content));
+  assert.ok(contentReview(result.content).valid);
+});
+
+test("combined interests survive comma-separated notes and missing halves trigger revision", () => {
+  for (const prompt of [wingsBrief, "Interests: buffalo wings, Denver Broncos\nIdea: a restaurant promotion"]) {
+    const brief = buildEmailBrief(prompt);
+    assert.ok(brief.topicTerms.includes("bronco"));
+    assert.equal(brief.angle, "promotion");
+    const issues = emailAuthoringQuality({ subject: "Broncos game-night deal", bodyText: "Watch the Denver Broncos on our screens. See the game-night special using the response below." }, brief);
+    assert.ok(issues.includes("topic_partial"));
+  }
+});
+
+test("a different matchup is retained and a resource request does not receive a restaurant deal", async () => {
+  const other = await generateContent(input("Jordan loves buffalo wings and the Denver Broncos. A restaurant special for Broncos vs Raiders on Sunday."), { env: {} });
+  assert.match(other.content.subject, /Broncos–Raiders Sunday/);
+  assert.doesNotMatch(other.content.bodyText, /Chargers|Thursday/);
+  const guide = await generateContent(input("Jordan loves buffalo wings and the Denver Broncos. Share a recipe guide, not a promotion."), { env: {} });
+  assert.match(guide.content.bodyText, /guide/);
+  assert.doesNotMatch(guide.content.bodyText, /\$12|Chargers/);
+});
+
+test("the Gemini brief teaches realistic promotional formats without forcing the restaurant story onto other topics", async () => {
+  const prepared = await generateContent(input(wingsBrief), { env: {} });
+  let system = "";
+  const result = await generateContent(input(wingsBrief), { env, fetcher: (async (_url, init) => {
+    const request = JSON.parse(String(init?.body));
+    system = request.systemInstruction.parts[0].text;
+    const payload = JSON.parse(request.contents[0].parts[0].text);
+    assert.equal(payload.fictionalSender, "Mile High Wing House");
+    assert.equal(payload.authorPrompt, wingsBrief);
+    return gemini({ subject: prepared.content.subject, body: prepared.content.bodyText.replace("the response below", EMAIL_TRACKING_PLACEHOLDER) });
+  }) as typeof fetch });
+  assert.equal(result.source, "gemini");
+  assert.match(system, /restaurant promotion/);
+  assert.match(system, /not verified current schedules/);
+  assert.match(system, /Do not force a greeting/);
+});
 const parsed = (email: { subject: string; body: string }) => ({ subject: email.subject, bodyText: email.body.replace(EMAIL_TRACKING_PLACEHOLDER, "the response below") });
 function gemini(email: { subject: string; body: string }, finishReason = "STOP") {
   return new Response(JSON.stringify({ candidates: [{ finishReason, content: { parts: [{ text: JSON.stringify(email) }] } }] }));
@@ -88,7 +136,7 @@ test("a valid but unrelated model response receives one targeted rewrite", async
   }) as typeof fetch });
   assert.equal(requests.length, 2);
   assert.equal(result.source, "gemini");
-  assert.equal(result.promptVersion, "email-authoring-v4");
+  assert.equal(result.promptVersion, "email-authoring-v5");
   assert.equal(result.content.subject, chessEmail.subject);
   assert.equal(result.content.bodyText, parsed(chessEmail).bodyText);
   assert.equal(requests[1].authorPrompt, chessBrief);
@@ -103,7 +151,7 @@ test("a second unrelated response falls back to the author's topic without more 
   const result = await generateContent(input(chessBrief), { env, fetcher: (async () => { calls++; return gemini(unrelatedEmail); }) as typeof fetch });
   assert.equal(calls, 2);
   assert.equal(result.source, "fallback");
-  assert.match(result.content.subject, /chess/i);
+  assert.match(result.content.subject, /chess|endgames/i);
   assert.match(result.content.bodyText, /chess/i);
   assert.doesNotMatch(result.content.bodyText, /garden club|seed swap|backstage|parcel/i);
   assert.ok(emailPromptContentValid(result.content));

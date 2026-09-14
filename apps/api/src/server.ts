@@ -1,4 +1,5 @@
 import { challengeResponseScript } from "./challenge-response.js";
+import { registerEmailReveal } from "./email-reveal.js";
 import { prankRevealHtml, registerPrankRevealRoutes } from "./prank-reveals.js";
 import Fastify, { type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
@@ -15,6 +16,7 @@ import { ApiError, GameService } from "./service.js";
 import { accountSetupSchema, saveAccount } from "./accounts.js";
 import { registerEmailAuth } from "./email-auth.js";
 import { registerLocalAuth } from "./local-auth.js";
+import { registerDemoQuickLogin } from "./demo-quick-login.js";
 import { demoResetCapability, resetDemo } from "./demo-reset.js";
 import { LeagueService } from "./leagues.js";
 import { registerMobilePreview } from "./mobile-preview.js";
@@ -167,6 +169,7 @@ export async function createServer(
   });
   registerEmailAuth(app, service);
   registerLocalAuth(app, service);
+  await registerDemoQuickLogin(app, service);
   app.post("/api/demo/reset", async (request, reply) => {
     const session = await getSession(request, true);
     z.object({ confirm: z.literal("RESET") }).strict().parse(request.body);
@@ -261,6 +264,17 @@ export async function createServer(
       .parse(request.body);
     await service.setPaused(session.userId, paused);
     return { ok: true };
+  });
+  app.post("/api/drafts/reset-unsent-email", async request => {
+    const session = await getSession(request, true);
+    if (!service.simulated && !service.config.emailCapture) throw new ApiError(403, "Only available in the local demo.");
+    const scoped = await service.forSession(session, true);
+    return scoped.transact(db => {
+      const ids = new Set(db.scenarios.filter(s => s.authorId === session.userId && s.channel === "email" && !s.locked && s.releasedAt === null && s.generationStatus !== "pending" && !db.attempts.some(a => a.scenarioId === s.id)).map(s => s.id));
+      db.scenarios = db.scenarios.filter(s => !ids.has(s.id));
+      db.jobs = db.jobs.filter(j => !ids.has(j.scenarioId));
+      return { removed: ids.size };
+    });
   });
   app.post("/api/drafts/generate", async (request, reply) => {
     const session = await getSession(request, true);
@@ -373,12 +387,15 @@ export async function createServer(
     await matchService.finalize();
     return { ok: true };
   });
+  const emailReveal = registerEmailReveal(app, service);
   app.get<{
     Params: {
       token: string;
     };
   }>("/r/:token", async (request, reply) => {
     const { scenario, db } = await service.challengeToken(request.params.token);
+    if (scenario.channel === "email" && scenario.isPhishing)
+      return reply.header("X-Frame-Options", "DENY").type("text/html").send(emailReveal(request, scenario));
     let session: Session | null = null;
     try {
       session = await getSession(request);

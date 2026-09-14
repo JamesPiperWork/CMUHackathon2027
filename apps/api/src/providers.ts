@@ -533,7 +533,9 @@ export class SmtpAdapter implements DeliveryAdapter {
       });
       if (result.accepted?.length)
         return {
-          status: "accepted",
+          // Mailpit is the final local inbox, with no relay or downstream carrier.
+          // Its SMTP acceptance confirms local delivery; external SMTP does not.
+          status: captured ? "delivered" : "accepted",
           providerId: result.messageId ?? smtpMessageId(e.attemptId, from ?? ""),
           reason: captured ? "Captured by local Mailpit SMTP. Open http://localhost:8026; no external inbox was contacted." : "SMTP accepted submission; inbox delivery is unconfirmed.",
         };

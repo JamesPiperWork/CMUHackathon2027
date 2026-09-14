@@ -69,7 +69,7 @@ test("HTTP sender notes accept arbitrary topics without a legacy hobby tag and p
   assert.equal(prepared.statusCode, 200, prepared.body);
   const state = (await app.inject({ url: "/api/state", headers: headers("alex") })).json();
   assert.equal(state.drafts[0].contentPolicy, "email-prompt-v3");
-  assert.match(state.drafts[0].content.bodyText, /centered on chess/);
+  assert.match(state.drafts[0].content.bodyText, /chess puzzle/);
   assert.equal(state.drafts[0].authorPrompt, authorPrompt);
   const invalid = await app.inject({ method: "PUT", url: "/api/scouting/jordan", headers: headers("alex"), payload: { interests: ["Chess"], markdown: authorPrompt } });
   assert.equal(invalid.statusCode, 400, "The old enum field cannot silently accept unrecognized values");
@@ -229,7 +229,8 @@ test("GET/prefetch is neutral; wrong recipient, cookie CSRF, expired link, unkno
   const url = new URL(service.actionUrl(scenario)).pathname;
   const preview = await app.inject(url);
   assert.equal(preview.statusCode, 200);
-  assert.ok(preview.body.includes("Simulated delivery"));
+  assert.ok(preview.body.includes("Your surprise"));
+  assert.ok(preview.body.includes("const receipt = null"), "A raw preview cannot record a click");
   assert.equal((await repo.read()).decisions.length, 0);
   assert.ok(
     !JSON.stringify(await repo.read()).includes(

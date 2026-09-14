@@ -4,6 +4,7 @@ import { buildEmailBrief, emailAuthoringQuality } from "../apps/api/src/email-au
 
 // Synthetic inputs only. This exercises drafting; it never creates accounts or sends mail.
 const samples = [
+  { id: "wings", name: "Wings and Broncos TNF promotion", prompt: "Jordan loves buffalo wings and the Denver Broncos. Write a local wing restaurant promotional deal for Broncos vs Chargers on Thursday Night Football, with a specific menu offer and table options." },
   { id: "chess", name: "Chess invitation", prompt: "They enjoy chess puzzles. Invite them to a relaxed puzzle evening with casual matches. Keep the tone conversational, without urgency." },
   { id: "baking", name: "Baking resource", prompt: "Interest: sourdough baking\nIdea: share a beginner technique guide, not an event invitation.\nTone: friendly and practical." },
   { id: "trains", name: "Model railway update", prompt: "They enjoy model trains. Write an update about an invented community exhibition with one concrete layout detail." },

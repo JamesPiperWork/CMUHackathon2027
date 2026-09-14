@@ -2,10 +2,12 @@ import http from 'node:http';
 import {readFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import nodemailer from 'nodemailer';
+import {seedSampleMailbox} from './seed-mailbox.mjs';
 
 export const mailAccounts = [
   {name:'Alex Morgan',email:'alex@demo.test',color:'#3b6bc9'},
   {name:'Jordan Lee',email:'jordan@demo.test',color:'#98744e'},
+  {name:'Justin',email:'justin@demo.test',color:'#c59a35'},
   {name:'Casey Reed',email:'casey@demo.test',color:'#64886c'},
 ];
 const address = value => typeof value === 'string' && /^[a-z0-9.!#$%&'*+\-/=?^_`{|}~]{1,64}@demo\.test$/i.test(value);
@@ -66,7 +68,7 @@ export async function seedMailbox() {
   }finally{transport.close();}
 }
 if(process.argv[1]===fileURLToPath(import.meta.url)){
-  await seedMailbox();const server=createMailboxServer();await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(8026,'127.0.0.1',resolve);});
+  await seedMailbox();await seedSampleMailbox();const server=createMailboxServer();await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(8026,'127.0.0.1',resolve);});
   process.stdout.write('Harbor Mail: http://localhost:8026 (local SMTP inbox and composer)\n');
   for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>server.close(()=>process.exit(0)));
 }

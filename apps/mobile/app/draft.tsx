@@ -13,17 +13,6 @@ type BaitChoice = { id: string; label: string; channel: Channel; kind?: "regular
 const channelNames: Record<Channel, string> = { email: "Email", sms: "Text", voice: "Voice" };
 const mediumNames: Record<Channel, string> = { email: "email", sms: "text message", voice: "call script" };
 const channelIcons = { email: "mail", sms: "sms", voice: "voice" } as const;
-const ideaAngles = [
-  { label: "Invitation", guidance: "Frame this topic as a friendly invitation from a fictional hobby club. Include one relevant activity and a clear next step." },
-  { label: "Useful resource", guidance: "Offer a useful resource about this topic from a fictional community. Give one concrete example of what it covers." },
-  { label: "Hobby update", guidance: "Write a simple update from a fictional hobby group about this topic. Highlight one specific new detail and why it is relevant." },
-];
-const refinementIdeas = [
-  { label: "Shorter", guidance: "Make this more concise. Keep the topic, the most useful detail, and one clear next step." },
-  { label: "More natural", guidance: "Use a warm, conversational tone. Remove marketing phrases and exaggerated claims; preserve the topic and details." },
-  { label: "More specific", guidance: "Make the connection to my original topic more concrete. Use its details without inventing personal facts or changing the premise." },
-];
-const appendGuidance = (value: string, guidance: string, separator = "\n\n") => `${value}${value ? separator : ""}${guidance}`;
 const deliveryLabels: Record<DeliveryStatus, string> = {
   queued: "Queued for delivery", simulated: "Simulated delivery", accepted: "Accepted by provider",
   delivered: "Delivered", failed: "Delivery failed", unknown: "Delivery unconfirmed",
@@ -64,7 +53,8 @@ function VoiceRecording({ path, onHeard, onUnavailable }: { path: string; onHear
 
 export default function Draft() {
   const params = useLocalSearchParams<{ channel?: string }>();
-  const { state, busy, request } = useSession();
+  const { state, busy, request, emailDelivery } = useSession();
+  const resetOnEntry = useRef("");
   const scrollToTop = useScreenScroll();
   const [channel, setChannel] = useState<Channel>("email");
   const [mediumChosen, setMediumChosen] = useState(false);
@@ -77,7 +67,6 @@ export default function Draft() {
   const [notesEdited, setNotesEdited] = useState(false);
   const [refinement, setRefinement] = useState("");
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [ideaHelpOpen, setIdeaHelpOpen] = useState(false);
   const [loadingNotes, setLoadingNotes] = useState(false);
   const [notesError, setNotesError] = useState(false);
   const [retry, setRetry] = useState(0);
@@ -106,6 +95,14 @@ export default function Draft() {
     ? (item.kind || "regular") === choice.kind && (choice.kind === "spear" || (item.slot || 1) === choice.slot)
     : item.channel === choice.channel;
   const draft = selected && state?.drafts.find(item => matchesChoice(item, selected));
+  const ephemeralEmails = state?.mode === "demo" && ["mailpit", "simulated"].includes(emailDelivery);
+  useEffect(() => {
+    if (!ephemeralEmails || !state?.opponent.id || waiting) return;
+    const entry = `${state.me.id}:${state.match.id}`;
+    if (resetOnEntry.current === entry) return;
+    resetOnEntry.current = entry;
+    void request("/api/drafts/reset-unsent-email", {}).catch(cause => setError(cause instanceof Error ? cause.message : "Could not clear old drafts."));
+  }, [ephemeralEmails, state?.me.id, state?.match.id, state?.opponent.id, waiting, request]);
 
   useEffect(() => { scrollToTop(); }, [step, channel, cast, scrollToTop]);
   useEffect(() => {
@@ -124,7 +121,6 @@ export default function Draft() {
     setStep(current => draft?.generationStatus === "pending" ? current : draft?.channel === channel ? "review" : "choose");
     setRefinement("");
     setDetailsOpen(false);
-    setIdeaHelpOpen(false);
     setSendResult(null);
     setError(null);
   }, [draft?.id, draft?.generationStatus, state?.match.id]);
@@ -259,6 +255,10 @@ export default function Draft() {
       {step !== "ready" && <Button small variant="ghost" disabled={disabled || dirty} onPress={() => navigate("ready")}>Your casts</Button>}
     </Row>
     {step === "review" && <Button small variant="ghost" style={{ alignSelf: "flex-start" }} disabled={disabled} onPress={() => navigate("choose")}>← Back to your idea</Button>}
+    {ephemeralEmails && channel === "email" && draft && !draft.locked && <Button small variant="secondary" disabled={disabled || generating} onPress={() => void run("clear", async () => {
+      await request("/api/drafts/reset-unsent-email", {});
+      noteCache.current = {}; setNotes(""); setContent(null); setDirty(false); setRefinement(""); setStep("choose"); setMediumChosen(true);
+    })}>New email</Button>}
     {!!sendResult && <Card style={{ gap: 8, borderColor: ["failed", "unknown", "cancelled"].includes(sendResult.status) ? C.coral : C.teal }}>
       <Txt style={{ fontWeight: "700" }}>{deliveryLabel(sendResult.status)}</Txt>
       <Txt muted style={{ lineHeight: 21 }}>{state.emailDelivery === "mailpit" && channel === "email" && ["accepted", "delivered"].includes(sendResult.status) ? "Captured this cast in the separate local inbox. No external email was sent." : sendResult.reason || (sendResult.status === "accepted" ? "The provider accepted this cast. This does not yet confirm a delivery or a game response." : sendResult.status === "simulated" ? "This cast stayed in the local simulation. No email, text or call was sent." : sendResult.status === "queued" ? "This cast is being processed. Its status will update here." : "Check the cast’s status before taking another action.")}</Txt>
@@ -286,20 +286,7 @@ export default function Draft() {
       {loadingNotes ? <Txt muted>Loading your saved context…</Txt> : notesError ? <View style={{ gap: 12 }}><Txt muted>We couldn't load your saved context.</Txt><Button variant="secondary" onPress={() => setRetry(value => value + 1)}>Try again</Button></View> : <>
         <Field label={`Your context for ${state.opponent.name}`} value={notes} multiline maxLength={1800} editable={!disabled && !locked}
           onChangeText={setContext}
-          placeholder="They love small acoustic shows. A casual update about a Friday booking would catch their eye."
           help="Your private notes. Hobbies and fictional plans are enough; leave out private contact details." />
-        {channel === "email" && !locked && <View style={{ gap: 8 }}>
-          <Pressable accessibilityRole="button" accessibilityState={{ expanded: ideaHelpOpen, disabled }} disabled={disabled}
-            onPress={() => setIdeaHelpOpen(value => !value)} style={{ minHeight: 44, justifyContent: "center", opacity: disabled ? 0.45 : 1 }}>
-            <Txt muted style={{ fontSize: 13 }}>Help shape my idea {ideaHelpOpen ? "−" : "+"}</Txt>
-          </Pressable>
-          {ideaHelpOpen && <>
-            <Txt muted style={{ fontSize: 12, lineHeight: 20 }}>Start with an interest above, then add an angle. This adds guidance to your idea; you can edit it before generating.</Txt>
-            <Row style={{ flexWrap: "wrap", gap: 8 }}>{ideaAngles.map(idea => <Button key={idea.label} small variant="secondary" style={{ borderRadius: 20 }}
-              accessibilityLabel={`Add ${idea.label.toLowerCase()} guidance`} disabled={disabled || notes.trim().length < 3 || notes.includes(idea.guidance) || appendGuidance(notes, idea.guidance).length > 1800}
-              onPress={() => setContext(appendGuidance(notes, idea.guidance))}>{idea.label}</Button>)}</Row>
-          </>}
-        </View>}
         {locked ? <Button disabled={!canReview || disabled} onPress={() => navigate("review")}>View your {medium}</Button> : <>
           <Button icon="sparkle" loading={working === "create" || generating} disabled={disabled || dirty || spearUnavailable || attemptsLeft === 0 || notes.trim().length < 3} onPress={() => createMessage()}>{generating ? `Writing your ${medium}…` : `Generate ${medium}`}</Button>
           {emailCasts && (selected.kind === "spear" || (attemptsLeft === 0 && !canReview)) && <Button variant="secondary" loading={working === "write"} disabled={disabled || dirty || spearUnavailable || notes.trim().length < 3} onPress={() => createMessage(true)}>{selected.kind === "spear" ? "Write my own Spear" : "Create an editable draft"}</Button>}
@@ -349,11 +336,8 @@ export default function Draft() {
         {!deliveryReady && <View style={{ gap: 8 }}><Txt muted style={{ fontSize: 13, lineHeight: 21 }}>{readiness?.reason || "Delivery is not connected for this medium."}</Txt><Button small variant="ghost" onPress={() => router.push("/settings")}>View delivery setup</Button></View>}
         {emailCasts && <>
           <Divider />
-          {channel === "email" && <Row style={{ flexWrap: "wrap", gap: 8 }}>{refinementIdeas.map(idea => <Button key={idea.label} small variant="secondary" style={{ borderRadius: 20 }}
-            accessibilityLabel={`Suggest ${idea.label.toLowerCase()} wording`} disabled={disabled || spearUnavailable || attemptsLeft === 0 || refinement.includes(idea.guidance) || appendGuidance(refinement, idea.guidance, " ").length > 500}
-            onPress={() => setRefinement(appendGuidance(refinement, idea.guidance, " "))}>{idea.label}</Button>)}</Row>}
           <Field label="Want Gemini to change something?" value={refinement} maxLength={500} editable={!disabled && attemptsLeft > 0}
-            onChangeText={setRefinement} placeholder="Make it shorter and a little more casual."
+            onChangeText={setRefinement}
             help={attemptsLeft ? `${attemptsLeft} ${attemptsLeft === 1 ? "generation" : "generations"} left for this cast. Your current edits are included.` : "No generations left. You can still edit the message above."} />
           <Button variant="secondary" icon="sparkle" loading={working === "refine" || generating} disabled={disabled || !valid || spearUnavailable || attemptsLeft === 0 || !refinement.trim()} onPress={() => createMessage(false, true)}>Regenerate with changes</Button>
         </>}

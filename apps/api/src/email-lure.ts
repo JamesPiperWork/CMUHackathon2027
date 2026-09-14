@@ -14,6 +14,7 @@ import {
 } from "@fp/shared";
 import { scoutingContext, validateScoutingMarkdown } from "./scouting.js";
 import { buildEmailBrief, emailAuthoringQuality, emailAuthoringSystem, emailQualityCorrections, type EmailQualityIssue } from "./email-authoring.js";
+import { preparedEmailStory } from "./email-scenarios.js";
 
 // Adapted from origin/main:src/lib/gemini.ts and src/app/cast/page.tsx
 // (204c824; reviewed at 9901d38): sender context → one editable JSON email.
@@ -78,7 +79,7 @@ export function emailLureFallback(input: GenerationInput): ApprovedContent {
   return contentSchema.parse(content);
 }
 
-/** A deliberately simple offline invitation, entirely about the sender's topic. */
+/** Concrete offline stories keep the demo useful when Gemini is unavailable. */
 export function emailPromptFallback(authorPrompt: string): ApprovedContent {
   const prompt = authorPrompt.trim();
   if (prompt.length < 3 || prompt.length > 1800) throw new Error("Describe your email idea in 3–1800 characters.");
@@ -86,16 +87,21 @@ export function emailPromptFallback(authorPrompt: string): ApprovedContent {
   if (emailHasExternalDestination(prompt)) throw new Error("Keep destinations out of the idea; the game supplies the response link.");
   const { topic, angle } = buildEmailBrief(prompt);
   if (topic.length < 2) throw new Error("Include a hobby, activity, or fictional invitation in your idea.");
-  const subjectTopic = `${topic[0].toUpperCase()}${topic.slice(1)}`;
+  const subjectTopic = `${topic[0].toUpperCase()}${topic.slice(1)}`.slice(0, 78);
+  const candidate = preparedEmailStory(topic, angle, prompt);
+  // A specialized example must not silently discard another supplied interest or angle.
+  const prepared = candidate && emailAuthoringQuality(candidate, buildEmailBrief(prompt)).length === 0 ? candidate : undefined;
   const story = angle === "resource"
     ? `We've put together a short guide to ${topic}, with a few starting points and practical ideas to try at your own pace. Take a look at the guide using the response below.`
     : angle === "update"
       ? `Here's the latest from our group on ${topic}. We've collected the new activity notes in one place so you can see what's coming up. Review the update using the response below.`
-      : `We're putting together a small community session centered on ${topic}. There will be time to try an activity and swap ideas with other enthusiasts. If that sounds like your kind of afternoon, confirm your interest using the response below.`;
+      : angle === "promotion"
+        ? `Our ${topic} special is on the menu this week. Browse the offer and its details using the response below.`
+        : `This week's plan is all about ${topic}. Bring a question you've been meaning to explore; we'll start there and compare approaches. See the plan using the response below.`;
   const content = emailPromptTeachingContent({
-    subject: `${subjectTopic}: ${angle === "resource" ? "a short guide" : angle === "update" ? "a quick update" : "an invitation"}`,
+    subject: prepared?.subject ?? `${subjectTopic}: ${angle === "resource" ? "practical notes" : angle === "update" ? "what's new" : angle === "promotion" ? "this week's special" : "the next session"}`,
     senderDisplayName: fictionalEmailSender(prompt),
-    bodyText: `Hi there,\n\n${story}\n\nThanks,\n${fictionalEmailSender(prompt)}`,
+    bodyText: `${prepared?.bodyText ?? story}\n\n${fictionalEmailSender(prompt)}`,
     smsText: "This email challenge is available in your consenting league.",
     voiceScript: "This is an email challenge from your consenting Fantasy Phishing league. No voice message is part of this draft.",
     cueAnnotations: ["Check an unexpected request through a known route."],
@@ -137,7 +143,7 @@ export async function generateEmailLure(
   // Match main's central model choice while preserving the environment override.
   const model = env.GEMINI_MODEL || "gemini-3.6-flash";
   const freeContext = input.policy === "email-prompt-v3";
-  const version = freeContext ? "email-authoring-v4" : promptVersion;
+  const version = freeContext ? "email-authoring-v5" : promptVersion;
   const brief = freeContext ? buildEmailBrief(input.authorPrompt ?? "", input.refinement) : undefined;
   const teaching = (content: ApprovedContent) => freeContext ? emailPromptTeachingContent(content) : emailTeachingContent(content, input.templateId);
   const valid = (content: ApprovedContent) => freeContext ? emailPromptContentValid(content) : emailContentConsistent(content, input.templateId);

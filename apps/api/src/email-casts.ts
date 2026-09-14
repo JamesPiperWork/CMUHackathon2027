@@ -57,7 +57,7 @@ export function awardAvoidance(db: Database) {
     // Ringing, voicemail, no answer, or a completed call never prove that the
     // player heard and identified a voice challenge. Only an explicit flag does.
     if (scenario.channel === "voice" && !confirmedFlag) continue;
-    if (!scenario.authorId || !scenario.locked || !scenario.isPhishing || scenario.releasedAt === null || (!confirmedFlag && !["simulated", "delivered", "unanswered"].includes(scenario.deliveryStatus))) continue;
+    if (!scenario.authorId || !scenario.locked || !scenario.isPhishing || scenario.releasedAt === null || scenario.releasedAt >= db.match.deadline || (!confirmedFlag && !["simulated", "delivered", "unanswered"].includes(scenario.deliveryStatus))) continue;
     if (!confirmedFlag && db.attempts.some(a => a.scenarioId === scenario.id && a.provider === "smtp" && a.receiptStatus === "delivered" && a.receiptOccurredAt !== undefined && a.receiptOccurredAt >= db.match.deadline)) continue;
     if (db.decisions.some(d => d.scenarioId === scenario.id && d.choice === "trust")) continue;
     if (db.scoreEvents.some(e => e.type === "avoidance" && e.sourceId === scenario.id && e.userId === scenario.recipientId)) continue;

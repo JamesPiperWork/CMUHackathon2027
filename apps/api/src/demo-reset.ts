@@ -2,6 +2,7 @@ import type { Database } from "@fp/shared";
 import { accountFor } from "./accounts.js";
 import { ApiError, type GameService } from "./service.js";
 import { gamePools } from "./repository.js";
+import { quickLoginEnabled, seedQuickLeague } from "./demo-quick-login.js";
 
 export function demoResetCapability(service: GameService, db: Database, userId: string): "all" | "active-leagues" | null {
   const account = accountFor(db, userId);
@@ -15,6 +16,7 @@ export async function resetDemo(service: GameService, userId: string) {
   if (service.simulated || service.config.emailCapture) {
     accountFor(await service.readDb(), userId);
     await service.reset(true);
+    if (quickLoginEnabled(service)) await seedQuickLeague(service);
     return { ok: true, preserveSession: false };
   }
   await service.transact(db => {

@@ -2,7 +2,20 @@
 
 Give Gemini a **topic, an angle, a tone, and one concrete detail**. A single hobby also works, but a short brief gives you more control over the result. Describe an invented activity or resource, rather than making up facts about the recipient's life.
 
+The generator now builds a situation around the interests, including restaurant offers, venue listings, photo-lab notes, and hobby resources. Sender type and format follow the situation. Two interests should connect in the story rather than appear as a list.
+
 These examples can be pasted directly into **Bait → Email → Your context**:
+
+**Wings + football — included as an authored fallback and a Gemini example**
+
+```text
+Jordan loves buffalo wings and the Denver Broncos.
+Write a local restaurant promotion from Mile High Wing House for Broncos–Chargers Thursday Night Football: 12 buffalo wings and fries for $12, from kickoff through the final whistle.
+Link to the game-night menu and table options.
+```
+
+This scenario uses an invented restaurant and promotional offer. The matchup is part of the fictional scenario, not a verified game schedule. It appears even when Gemini is unavailable. A different supplied opponent or Sunday occasion overrides those example defaults. The author can edit the draft before sending.
+
 
 **A relaxed invitation**
 
@@ -40,7 +53,7 @@ Leave URLs and contact details out of the brief; the app adds its own response l
 
 ## Use the optional helpers
 
-Under your context field, open **Help shape my idea** and choose **Invitation**, **Useful resource**, or **Hobby update**. Each button appends a short instruction to the topic you already wrote. You can edit it before pressing **Generate email**. The section starts collapsed, and choosing an angle does not generate or send anything.
+Under your context field, open **Help shape my idea** and choose **Local promotion**, **Invitation**, **Useful resource**, or **Hobby update**. With an empty context, **Try wings + football** fills in the complete example. Each angle button appends a short instruction to the topic you already wrote. You can edit it before pressing **Generate email**. The section starts collapsed, and choosing an angle does not generate or send anything.
 
 On the review screen, **Shorter**, **More natural**, and **More specific** add guidance to the revision field. Add your own instruction if needed, then press **Regenerate with changes**. Your current subject, sender name, and message edits are included in the revision. You can also edit the email directly.
 
@@ -48,15 +61,15 @@ The topic field allows 1,800 characters and the revision field allows 500. Helpe
 
 ## How the generator works
 
-The email pipeline records prompt version `email-authoring-v4` and follows this sequence:
+The email pipeline records prompt version `email-authoring-v5` and follows this sequence:
 
-1. **Interpret the brief.** Extract topic terms and an invitation, resource, or update angle as hints. The complete author brief remains the primary instruction, including tone and constraints.
+1. **Interpret the brief.** Extract topic terms and a promotion, invitation, resource, or update angle as hints. The complete author brief remains the primary instruction, including tone and constraints.
 2. **Draft with examples.** The system prompt includes varied examples of specific fictional messages. It asks for one coherent story, concrete relevant details, an ordinary tone, and one response action. It discourages generic marketing copy and invented recipient history.
 3. **Require structured output.** Gemini returns a JSON object with a subject and body. Local validation checks their lengths, the single response marker, content rules, and unsupported destinations. The model cannot choose a sending address or response URL.
-4. **Check the writing.** Deterministic checks catch a missing topic in the main body, selected boilerplate phrases, leaked drafting instructions, unsupported familiarity, and a requested resource replaced by another angle.
+4. **Check the writing.** Deterministic checks catch a missing topic in the main body, lost interests in a combination, canned community-session language, selected boilerplate phrases, leaked drafting instructions, unsupported familiarity, and a requested resource replaced by another angle.
 5. **Repair once if useful.** A failed writing or shape check can trigger one targeted rewrite with the specific correction. Each generation allows at most two provider requests within one shared 12-second budget. A refusal or content-policy failure uses the fallback without a rewrite.
 
-If generation fails, a new email receives prepared wording. A failed refinement preserves the current validated email and its submitted edits. The app identifies prepared drafts and explains the fallback. These writing checks are heuristics; they do not establish factual accuracy, realism for every topic, or improved recipient click rates.
+If generation fails, a new email receives a concrete prepared story when one fits its topics and checks; otherwise it receives a simpler editable draft about the supplied topic. Prepared examples are deterministic, not fresh AI output. A failed refinement preserves the current validated email and its submitted edits. The app identifies prepared drafts and explains the fallback. These writing checks are heuristics; they do not establish factual accuracy, realism for every topic, or improved recipient click rates.
 
 The design uses the clear instructions and varied examples described in Google's [prompt design guidance](https://ai.google.dev/gemini-api/docs/prompting-strategies), plus Gemini's [structured output support](https://ai.google.dev/gemini-api/docs/structured-output). The application still validates the returned content itself.
 
@@ -72,6 +85,6 @@ npm run email:eval -- --live
 npm run email:eval -- --live --sample=origami
 ```
 
-The first command exercises offline prepared wording. The second loads the local `GEMINI_API_KEY` and runs four synthetic briefs through Gemini, allowing up to one retry per brief. The third checks only one sample; other sample IDs are `chess`, `baking`, and `trains`. Live checks use API quota, but create no accounts and send no email. A provider rate limit stops the remaining samples; wait before another live run.
+The first command exercises offline prepared wording. The second loads the local `GEMINI_API_KEY` and runs five synthetic briefs through Gemini, allowing up to one retry per brief. The third checks only one sample; other sample IDs are `wings`, `chess`, `baking`, and `trains`. Live checks use API quota, but create no accounts and send no email. A provider rate limit stops the remaining samples; wait before another live run.
 
 The output includes each subject and body, source, prompt version, request count, elapsed time, and writing-check results. A live brief passes only when Gemini supplies the draft and the checks pass. Read the messages as well as the result counts: this is a small writing smoke test, not a measurement of training effectiveness.

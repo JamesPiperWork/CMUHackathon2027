@@ -21,7 +21,7 @@ Open:
 - Harbor Mail inbox and composer: http://localhost:8026/
 - Optional raw Mailpit inspector: http://localhost:8025/
 
-Harbor Mail includes three preconfigured mailboxes: Alex, Jordan and Casey, plus a few sample messages. Use two of their addresses in the app, for example `alex@demo.test` and `jordan@demo.test`. Sign-in codes arrive in the local inbox; these are disposable presentation identities, not verified external addresses. Use separate browser profiles or tabs for the two app sessions, and select each mailbox with the account menu when presenting. Use Compose or Reply to send local emails between them. The app uses its separate `data/capture-demo.json` store; existing real-email accounts and sends stay in `data/email-demo.json`.
+Harbor Mail includes three preconfigured mailboxes: Alex, Jordan and Casey, plus 60 messages of fictional inbox history. See [the mailbox profiles](docs/MAILBOX_PROFILES.md) for their interests and preferences. Use two of their addresses in the app, for example `alex@demo.test` and `jordan@demo.test`. Sign-in codes arrive in the local inbox; these are disposable presentation identities, not verified external addresses. Use separate browser profiles or tabs for the two app sessions, and select each mailbox with the account menu when presenting. Use Compose or Reply to send local emails between them. The app uses its separate `data/capture-demo.json` store; existing real-email accounts and sends stay in `data/email-demo.json`.
 
 1. Create the first account, select its address in Harbor Mail and retrieve its code from the inbox, and finish player setup.
 2. Create a league. Create the second account and join using the invite code.

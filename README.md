@@ -76,11 +76,13 @@ Voice earns avoidance only for an explicit flag, settled at the deadline. No ans
 
 Higher weekly total wins; equal totals draw. League points are win 3, draw 1, loss 0. Matches default to one week (`MATCH_DURATION_MINUTES=10080`).
 
-Raw email-link GETs, scanners and previews never score. The response page requires the intended recipient’s authenticated confirmation. SMTP acceptance alone does not prove delivery: an untouched email needs genuine delivery evidence before avoidance points can settle. The [signed receipt relay](docs/EMAIL_RECEIPTS.md) is implemented; connecting a real evidence source remains separate work.
+Email links immediately show the selected photo or illustrated prank, or automatically open the Rickroll on YouTube. There is no response form or sign-in step. A visible browser page submits a short-lived, token-bound receipt to record taking the bait once (+3 author, −1 recipient). GET/HEAD requests alone never score; declared prefetches receive no receipt. Local capture also supports WebViews and pasted links that omit navigation headers; scoring still requires the separate visible-page POST. External email mode retains the browser user-navigation checks. This filters basic scanners, not automation that fully imitates a browser. JavaScript is required for scoring; YouTube controls playback restrictions. Each secret email link belongs to its recipient, so forwarding it can attribute someone else’s click to that recipient. Uploaded surprises are visible to holders of the valid, released email link.
+
+External SMTP acceptance alone does not prove delivery: an untouched email needs genuine delivery evidence before avoidance points can settle. In local capture mode, Mailpit is the final inbox, so its SMTP acceptance records local delivery and permits +1 for an unclicked email at the weekly deadline. Emails delivered after the deadline earn no avoidance points. The [signed receipt relay](docs/EMAIL_RECEIPTS.md) supports external delivery evidence; connecting a real evidence source remains separate work.
 
 ## Start fresh
 
-Use **Settings → Reset demo** in simulated or local mailbox capture mode. Its confirmation explains that it clears **all accounts, leagues and progress**, then returns to Create account. Cancel keeps the current game. The separate local mailbox retains its message history; old challenge links stop working after the app reset.
+Use **Settings → Reset demo** in simulated or local mailbox capture mode. Its confirmation explains that it clears **all accounts, leagues and progress**, then returns to sign-in. Local mailbox mode immediately recreates Alex, Jordan, and The Fishing Crew for quick login. Cancel keeps the current game. The separate local mailbox retains its message history; old challenge links stop working after the app reset.
 
 In real-email mode, the organizer whose verified email matches `SMTP_USER` sees **Reset active leagues**. This archives current leagues and cancels unfinished work while retaining accounts, sessions, email history and consumed delivery quotas. Already sent email cannot be recalled. Other participants do not get this control.
 

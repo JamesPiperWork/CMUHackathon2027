@@ -64,7 +64,7 @@ test("mailbox selection and folder searches are restricted and cannot inject Mai
   }
   for (const account of ["other@demo.test", "alex@example.com", "alex@demo.test OR from:jordan@demo.test", 'alex@demo.test"', "", "../message/id"]) assert.equal((await f.call(`/api/messages?account=${encodeURIComponent(account)}`)).status, 400);
   assert.equal((await f.call("/api/messages?account=alex%40demo.test&folder=all")).status, 400);
-  assert.equal(f.requests.length, 6, "Rejected selections never query the inbox backend");
+  assert.equal(f.requests.length, mailAccounts.length * 2, "Rejected selections never query the inbox backend");
 });
 
 test("local composer allows only a preset sender and local recipients and forwards plain text with file/URL access disabled", async t => {

@@ -40,7 +40,7 @@ try {
   console.log("Starting a separate local mailbox demo. External email, texts and calls are disabled; .env is unchanged.");
   // Pass no MP_* settings, SMTP credentials, forwarding, relay or webhook settings to Mailpit.
   const mailpitEnv = Object.fromEntries(["PATH", "HOME", "TMPDIR", "LANG", "TZ"].filter(key => process.env[key] !== undefined).map(key => [key, process.env[key]]));
-  const mailbox = start(process.env.MAILPIT_BINARY || "mailpit", ["--listen", "127.0.0.1:8025", "--smtp", "127.0.0.1:1025", "--database", "data/capture-mailbox.db", "--label", "Local demo inbox — no external delivery", "--disable-version-check", "--smtp-disable-rdns", "--allowed-hosts", "localhost,127.0.0.1", "--smtp-allowed-recipients", "(?i)^[^@]+@demo\\.test$", "--block-remote-css-and-fonts", "--max-message-size", "5"], mailpitEnv);
+  const mailbox = start(process.env.MAILPIT_BINARY || "mailpit", ["--use-message-dates", "--ignore-duplicate-ids", "--max", "0", "--listen", "127.0.0.1:8025", "--smtp", "127.0.0.1:1025", "--database", "data/capture-mailbox.db", "--label", "Local demo inbox — no external delivery", "--disable-version-check", "--smtp-disable-rdns", "--allowed-hosts", "localhost,127.0.0.1", "--smtp-allowed-recipients", "(?i)^[^@]+@demo\\.test$", "--block-remote-css-and-fonts", "--max-message-size", "5"], mailpitEnv);
   mailbox.once("error", () => { mailpitFailure = new Error("Mailpit could not start. Install Mailpit or set MAILPIT_BINARY to its executable path."); stop(); });
   mailbox.once("exit", code => { if (!stopped) { mailpitFailure = new Error(`Mailpit stopped (exit ${code ?? "signal"}). App stopped to avoid ambiguous delivery.`); stop(); } });
   let ready = false;

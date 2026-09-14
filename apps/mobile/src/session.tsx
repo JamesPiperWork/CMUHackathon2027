@@ -43,6 +43,7 @@ interface SessionContext {
   verifyEmailSignIn: (requestId: string, code: string) => Promise<void>;
   createAccount: (name: string, email: string, password: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
+  quickSignIn: (player: "alex" | "jordan") => Promise<void>;
   signInLive: () => Promise<void>;
   signOut: () => Promise<void>;
   resetDemo: () => Promise<void>;
@@ -303,6 +304,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const signIn = (email: string, password: string) => completeSignIn(
     () => fetchApi<{ token: string }>("/api/account/login", { email, password }), "Sign-in failed.",
   );
+  const quickSignIn = (player: "alex" | "jordan") => completeSignIn(
+    () => fetchApi<{ token: string }>("/api/auth/demo-quick", { player }), "Quick sign-in failed.",
+  );
   const signInLive = () => safely(completeSignIn(async () => ({ token: (await loginLive()).accessToken }), "Auth0 sign-in failed."));
   const startEmailSignIn = async (email: string) => {
     const epoch = beginTransition();
@@ -374,6 +378,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         startEmailSignIn,
         verifyEmailSignIn,
         createAccount,
+        quickSignIn,
         signIn,
         signInLive,
         signOut,

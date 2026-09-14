@@ -86,10 +86,12 @@ export class GameService {
   async forSession(session: Session, requireSelectedMatch = false) {
     const db = await this.readDb();
     const selection = db.userSelections?.[session.userId];
-    const matchId = session.selectedMatchId ?? selection?.matchId;
     const selectedLeagueId = session.selectedLeagueId ?? selection?.leagueId;
+    // Another tab can change the account-wide selection. Never combine that
+    // tab's match with this session's explicitly selected league.
+    const matchId = session.selectedMatchId ?? (selection?.leagueId === selectedLeagueId ? selection?.matchId : undefined);
     const available = gamePools(db).filter(p => !db.leagues?.find(l => l.id === p.match.leagueId)?.archivedAt);
-    const requested = available.find((p) => p.match.id === matchId && p.match.players.includes(session.userId));
+    const requested = available.find((p) => p.match.id === matchId && (!selectedLeagueId || p.match.leagueId === selectedLeagueId) && p.match.players.includes(session.userId));
     const selectedLeagueMatches = available.filter((p) => p.match.leagueId === selectedLeagueId && p.match.players.includes(session.userId)).sort((a, b) => (b.match.week ?? 0) - (a.match.week ?? 0));
     const newlyAssigned = selectedLeagueMatches.find((p) => p.match.state !== "completed") ?? selectedLeagueMatches[0];
     const fallback = available.find((p) => p.match.players.includes(session.userId) && p.match.state !== "completed") ?? available.find((p) => p.match.players.includes(session.userId));
@@ -633,6 +635,9 @@ export class GameService {
       // Retained only for old persisted schemas; it never enters a v3 model prompt.
       const interest = promptBased ? "Board games" : input.interest!;
       const fixture = messageBased ? messagePromptFallback(authorPrompt!, input.channel as "sms" | "voice") : promptBased ? emailPromptFallback(authorPrompt!) : fixtureContent(input.channel, templateId, true);
+      // Prepared stories can paraphrase or omit wording. Check the original
+      // brief against recipient exclusions before creating a generation job.
+      if (authorPrompt) this.enforceExclusions(db, recipient.userId, templateId, { ...fixture, bodyText: authorPrompt });
       const league = db.leagues?.find((l) => l.id === db.match.leagueId);
       if (league && !league.settings.channels[input.channel]) throw new ApiError(409, "This league has disabled that channel");
       this.enforceExclusions(
@@ -1466,7 +1471,7 @@ export class GameService {
       attempt.reason = result.reason;
       attempt.updatedAt = this.now(db);
       scenario.deliveryStatus = result.status;
-      if (result.status === "simulated" || result.status === "accepted")
+      if (["simulated", "accepted", "delivered"].includes(result.status))
         scenario.releasedAt = this.now(db);
     });
   }

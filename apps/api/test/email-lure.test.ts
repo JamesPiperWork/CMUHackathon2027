@@ -182,11 +182,11 @@ test("free-context fallback centers arbitrary hobbies without legacy stories or 
     ["They collect vintage postcards.", "vintage postcards"],
   ]) {
     const result = await generateContent(promptInput(brief), { env: {} });
-    assert.equal(result.promptVersion, "email-authoring-v4");
+    assert.equal(result.promptVersion, "email-authoring-v5");
     assert.equal(result.source, "fixture");
     assert.match(result.reason!, /Gemini is not connected/);
-    assert.ok(result.content.subject.toLowerCase().includes(topic));
-    assert.ok(result.content.bodyText.includes(`centered on ${topic}.`));
+    for (const term of topic.split(" ")) assert.ok(result.content.bodyText.toLowerCase().includes(term), `Missing ${term}`);
+    assert.doesNotMatch(result.content.bodyText, /small community session|centered on|swap ideas with other enthusiasts/);
     assert.doesNotMatch(JSON.stringify(result.content), /JS-118|MC-204|Mooncrate|Trail Club|Juniper Sessions|backstage upgrade|saved.*confirmed/);
     assert.ok(emailPromptContentValid(result.content));
     assert.ok(contentReview(result.content).valid);

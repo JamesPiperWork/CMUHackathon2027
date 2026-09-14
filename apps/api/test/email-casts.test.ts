@@ -8,6 +8,8 @@ import { FileRepository, gamePools } from "../src/repository.js";
 import { GameService } from "../src/service.js";
 import { createServer } from "../src/server.js";
 import type { Config } from "../src/config.js";
+import { io as clientSocket } from "socket.io-client";
+import { SmtpAdapter } from "../src/providers.js";
 
 type Player = "alex" | "jordan";
 async function setup(t: TestContext, legacy = false) {
@@ -203,6 +205,55 @@ test("email challenge GET, HEAD and prefetch are score-neutral and require the r
   const clicked = await f.app.inject({ method: "POST", url, headers: { cookie: `fp_session=${f.sessions.jordan.token}` }, payload: { choice: "trust", csrf: f.sessions.jordan.csrf } });
   assert.equal(clicked.statusCode, 302);
   assert.deepEqual((await f.repo.read()).match.scores, { alex: 3, jordan: -1 });
+});
+
+test("direct email clicks notify both players in a new league and captured mail settles avoidance once", { timeout: 10000 }, async t => {
+  const f = await setup(t), league = await f.newLeague();
+  const clicked = await f.prepare("alex", 1), untouched = await f.prepare("alex", 2);
+  await f.lock("alex", clicked); await f.lock("alex", untouched);
+  await f.post("alex", "/api/match/activate");
+  const scoped = await f.selectedService();
+  await scoped.release(undefined, true);
+  const env = { APP_MODE: "demo", EMAIL_DELIVERY_MODE: "mailpit", EMAIL_DEMO_LOCAL_ONLY: "true", API_ORIGIN: "http://localhost:3001", APP_ORIGIN: "http://localhost:3001", PORT: "3001" };
+  const smtp = new SmtpAdapter(env, async () => ({ accepted: ["jordan@demo.test"] }));
+  for (const scenario of (await scoped.readDb()).scenarios) {
+    const result = await smtp.send({ attemptId: scenario.id, scenarioId: scenario.id, recipientId: "jordan", destination: "jordan@demo.test", channel: "email", content: scenario.content, actionUrl: scoped.actionUrl(scenario) });
+    await scoped.transact(db => {
+      db.scenarios.find(s => s.id === scenario.id)!.deliveryStatus = result.status;
+      db.attempts.filter(a => a.scenarioId === scenario.id).forEach(a => { a.status = result.status; });
+    });
+  }
+  await f.app.listen({ port: 0, host: "127.0.0.1" });
+  const address = f.app.server.address(); assert.ok(address && typeof address === "object");
+  const sockets = ["alex", "jordan"].map(player => clientSocket(`http://127.0.0.1:${address.port}`, { auth: { token: f.sessions[player as Player].token }, transports: ["websocket"], reconnection: false }));
+  t.after(() => sockets.forEach(socket => socket.close()));
+  await Promise.all(sockets.map(socket => new Promise<void>((resolve, reject) => { socket.once("connect", resolve); socket.once("connect_error", reject); })));
+  const changed = Promise.all(sockets.map(socket => new Promise<void>(resolve => socket.once("state:changed", resolve))));
+  const scenario = (await scoped.readDb()).scenarios.find(s => s.id === clicked)!;
+  const url = new URL(scoped.actionUrl(scenario)).pathname;
+  const page = await f.app.inject({ url, headers: { "sec-fetch-user": "?1", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document" } });
+  const receipt = JSON.parse(/const receipt = (.*);/.exec(page.body)![1]); assert.ok(receipt);
+  for (let i = 0; i < 2; i++) {
+    const response = await f.app.inject({ method: "POST", url: `${url}/open`, headers: { origin: f.config.apiOrigin, "sec-fetch-site": "same-origin" }, payload: { receipt } });
+    assert.equal(response.statusCode, 204, response.body);
+  }
+  await changed;
+  for (const player of ["alex", "jordan"] as const) {
+    const state = (await f.app.inject({ url: "/api/state", headers: f.headers(player) })).json();
+    assert.deepEqual(state.match.scores, { alex: 3, jordan: -1 });
+    const matches = (await f.app.inject({ url: `/api/leagues/${league.id}/matchups`, headers: f.headers(player) })).json();
+    assert.deepEqual(matches.matchups[0].scores, state.match.scores);
+  }
+  assert.equal((await scoped.readDb()).decisions.length, 1);
+  await f.service.advance(10081);
+  await scoped.finalize(); await scoped.finalize();
+  const completed = await scoped.readDb();
+  assert.equal(completed.match.state, "completed");
+  assert.deepEqual(completed.match.scores, { alex: 3, jordan: 0 });
+  assert.deepEqual(completed.scoreEvents.filter(e => e.type === "avoidance").map(e => e.sourceId), [untouched]);
+  const standings = (await f.app.inject({ url: `/api/leagues/${league.id}/standings`, headers: f.headers("alex") })).json();
+  assert.equal(standings.members.find((p: { id: string }) => p.id === "alex").leaguePoints, 3);
+  assert.equal(standings.members.find((p: { id: string }) => p.id === "jordan").leaguePoints, 0);
 });
 
 test("a Spear that cannot fit scheduled delivery rolls back its lock and seasonal reservation together", async (t) => {

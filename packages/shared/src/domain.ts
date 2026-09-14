@@ -532,7 +532,7 @@ export interface DeliveryEnvelope {
   audioUrl?: string;
 }
 export interface DeliveryResult {
-  status: "simulated" | "accepted" | "failed" | "unknown";
+  status: "simulated" | "accepted" | "delivered" | "failed" | "unknown";
   providerId?: string;
   reason?: string;
 }

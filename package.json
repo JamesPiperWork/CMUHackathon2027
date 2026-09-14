@@ -20,7 +20,8 @@
     "email:check": "tsx scripts/check-email.ts",
     "email:eval": "node --env-file-if-exists=.env --import tsx scripts/evaluate-email.ts",
     "email:demo": "node --env-file-if-exists=.env scripts/start-email-demo.mjs",
-    "email:capture": "node --env-file-if-exists=.env scripts/start-capture.mjs"
+    "email:capture": "node --env-file-if-exists=.env scripts/start-capture.mjs",
+    "email:populate": "node scripts/seed-mailbox.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",

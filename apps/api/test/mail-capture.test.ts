@@ -44,7 +44,7 @@ test("local SMTP uses the fictional display name and unprefixed subject with hon
   const messages: Record<string, unknown>[] = [];
   const adapter = new SmtpAdapter({ ...env, SMTP_FROM: "actual-account@gmail.com" }, async message => { messages.push(message); return { accepted: [envelope.destination], messageId: "<capture@demo.test>" }; });
   const sent = await adapter.send(envelope);
-  assert.equal(sent.status, "accepted"); assert.match(sent.reason!, /Captured by local Mailpit/);
+  assert.equal(sent.status, "delivered"); assert.match(sent.reason!, /Captured by local Mailpit/);
   assert.deepEqual(messages[0].from, { name: envelope.content.senderDisplayName, address: "notifications@demo.test" });
   assert.equal(messages[0].subject, envelope.content.subject);
   assert.ok(String(messages[0].text).includes(envelope.actionUrl)); assert.doesNotMatch(String(messages[0].text), /game simulation/i);
